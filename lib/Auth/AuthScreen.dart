@@ -4,8 +4,10 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
-import 'package:tik_tok_wikipidiea/screens/home/infinite_scroll.dart';
-import 'package:tik_tok_wikipidiea/services/theme_render.dart'; // Import the theme service
+import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
+import 'package:tik_tok_wikipidiea/services/theme_render.dart';
+
+import '../config.dart';
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -29,6 +31,7 @@ class _AuthScreenState extends State<AuthScreen>
     'email': '',
     'phone': '',
     'password': '',
+    'bio': '', // Add bio to auth data
   };
 
   @override
@@ -84,11 +87,11 @@ class _AuthScreenState extends State<AuthScreen>
       _isLoading = true;
     });
 
-    final baseUrl = 'replace here url';
+    final baseUrl = Config.baseUrl;
     try {
       if (isLogin) {
         final response = await http.post(
-          Uri.parse('$baseUrl/auth/login'),
+          Uri.parse('$baseUrl/login'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             'email': _authData['email'],
@@ -99,9 +102,8 @@ class _AuthScreenState extends State<AuthScreen>
         if (response.statusCode == 200) {
           final responseData = json.decode(response.body);
           print("responseData is   ${responseData}");
+
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('access_token', responseData['access_token']);
-          await prefs.setString('refresh_token', responseData['refresh_token']);
           await prefs.setString(
             'user_id',
             responseData['user']['id'].toString(),
@@ -369,6 +371,24 @@ class _AuthScreenState extends State<AuthScreen>
                                       theme: theme,
                                     ),
                                   if (!isLogin) SizedBox(height: 12),
+                                  // Add Bio Field when signing up
+                                  if (!isLogin)
+                                    _buildTextField(
+                                      label: 'Bio',
+                                      icon: Icons.description_outlined,
+                                      keyboardType: TextInputType.multiline,
+                                      maxLines: 2,
+                                      hint: 'Tell us a bit about yourself',
+                                      validator: (value) {
+                                        // Bio is optional
+                                        return null;
+                                      },
+                                      onSaved:
+                                          (value) =>
+                                              _authData['bio'] = value ?? '',
+                                      theme: theme,
+                                    ),
+                                  if (!isLogin) SizedBox(height: 12),
                                   _buildPasswordField(theme: theme),
                                 ],
                               ),
@@ -380,9 +400,9 @@ class _AuthScreenState extends State<AuthScreen>
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
                                 onPressed: () {
-                                  Navigator.of(context).push(
+                                  Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
-                                      builder: (context) => BottomNavBar(),
+                                      builder: (context) => UserInterestPage(),
                                     ),
                                   );
                                 },
@@ -475,6 +495,8 @@ class _AuthScreenState extends State<AuthScreen>
     List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
     void Function(String?)? onSaved,
+    String? hint,
+    int? maxLines = 1,
   }) {
     final isDarkMode = theme.brightness == Brightness.dark;
     final primaryColor = theme.primaryColor;
@@ -482,6 +504,7 @@ class _AuthScreenState extends State<AuthScreen>
     return TextFormField(
       decoration: InputDecoration(
         labelText: label,
+        hintText: hint,
         prefixIcon: Icon(icon, color: primaryColor, size: 18),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -512,6 +535,7 @@ class _AuthScreenState extends State<AuthScreen>
           color: theme.textTheme.bodyMedium?.color, // Use text color from theme
           fontSize: 13,
         ),
+        hintStyle: TextStyle(color: theme.hintColor, fontSize: 13),
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         isDense: true,
       ),
@@ -523,6 +547,7 @@ class _AuthScreenState extends State<AuthScreen>
       inputFormatters: inputFormatters,
       validator: validator,
       onSaved: onSaved,
+      maxLines: maxLines,
     );
   }
 

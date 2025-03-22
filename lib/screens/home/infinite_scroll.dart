@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tik_tok_wikipidiea/models/comments_of_post.dart';
 import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
 import 'package:tik_tok_wikipidiea/models/post_content.dart';
 import 'dart:math';
 import 'dart:async';
 import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
+import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
 
 class ScrollScreen extends StatefulWidget {
+  const ScrollScreen({super.key});
+
   @override
   _ScrollScreenState createState() => _ScrollScreenState();
 }
@@ -46,6 +50,9 @@ class _ScrollScreenState extends State<ScrollScreen> {
   // Auto-scroll settings
   final AutoScrollService _autoScrollService = AutoScrollService();
   Timer? _autoScrollTimer;
+
+  // Bookmark service
+  final BookmarkService _bookmarkService = BookmarkService();
 
   // Track reading time
   int _currentIndex = 0;
@@ -111,7 +118,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
       }
 
       print(
-        'Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
+        '============================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
       );
     }
   }
@@ -120,6 +127,24 @@ class _ScrollScreenState extends State<ScrollScreen> {
     setState(() {
       posts.shuffle(Random());
     });
+  }
+
+  // Show comments bottom sheet
+  void _showComments(Post post) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            decoration: BoxDecoration(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: CommentsSheet(post: post),
+          ),
+    );
   }
 
   @override
@@ -293,43 +318,50 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                           });
                                         },
                                       ),
+                                      // CHANGED: Replaced share button with comments button
                                       IconButton(
                                         icon: Icon(
-                                          Icons.share,
+                                          Icons.comment_outlined,
                                           size: 22,
                                           color:
                                               Theme.of(context).iconTheme.color,
                                         ),
                                         onPressed: () {
-                                          Clipboard.setData(
-                                            ClipboardData(
-                                              text: posts[index].description,
-                                            ),
-                                          );
+                                          _showComments(posts[index]);
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          _bookmarkService.isBookmarked(
+                                                posts[index],
+                                              )
+                                              ? Icons.bookmark
+                                              : Icons.bookmark_border,
+                                          size: 22,
+                                          color:
+                                              Theme.of(context).iconTheme.color,
+                                        ),
+                                        onPressed: () {
+                                          setState(() {
+                                            // Toggle bookmark status using the service
+                                            _bookmarkService.toggleBookmark(
+                                              posts[index],
+                                            );
+                                          });
+
+                                          // Show appropriate message
                                           ScaffoldMessenger.of(
                                             context,
                                           ).showSnackBar(
                                             SnackBar(
                                               content: Text(
-                                                "Description copied! Share it anywhere.",
+                                                _bookmarkService.isBookmarked(
+                                                      posts[index],
+                                                    )
+                                                    ? "Article bookmarked"
+                                                    : "Bookmark removed",
                                               ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: Icon(
-                                          Icons.bookmark_border,
-                                          size: 22,
-                                          color:
-                                              Theme.of(context).iconTheme.color,
-                                        ),
-                                        onPressed: () {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text("Article saved"),
+                                              duration: Duration(seconds: 1),
                                             ),
                                           );
                                         },
