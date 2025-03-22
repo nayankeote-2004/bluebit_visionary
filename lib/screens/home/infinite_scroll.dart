@@ -7,6 +7,10 @@ import 'dart:math';
 import 'dart:async';
 import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
 import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
+import 'package:shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:tik_tok_wikipidiea/config/config.dart';
 
 class ScrollScreen extends StatefulWidget {
   const ScrollScreen({super.key});
@@ -16,33 +20,9 @@ class ScrollScreen extends StatefulWidget {
 }
 
 class _ScrollScreenState extends State<ScrollScreen> {
-  List<Post> posts = [
-    Post(
-      image: 'https://source.unsplash.com/800x1200/',
-      description: "A beautiful sunset over the hills.",
-      source: "Nature Today",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?city',
-      description: "Night view of a busy city street.",
-      source: "Urban Lens",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?ocean',
-      description: "Waves crashing against the rocks.",
-      source: "Marine Explorer",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?forest',
-      description: "A dense green forest with mist.",
-      source: "Wilderness Magazine",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?mountain',
-      description: "A majestic snow-capped mountain.",
-      source: "Mountain Weekly",
-    ),
-  ];
+  List<Post> posts = [];
+  bool isLoading = true;
+  String? userId;
 
   PageController _pageController = PageController();
   bool _isSwipingRight = false;
@@ -62,6 +42,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserId();
     _startTrackingTime(0);
 
     // Listen for auto-scroll setting changes
@@ -69,6 +50,38 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
     // Initialize auto-scroll if enabled
     _updateAutoScroll();
+  }
+
+  Future<void> _loadUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    userId = prefs.getString('userId');
+    if (userId != null) {
+      await _fetchRecommendedArticles();
+    }
+  }
+
+  Future<void> _fetchRecommendedArticles() async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/$userId/recommended-articles'),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> articlesJson = json.decode(response.body);
+        setState(() {
+          posts = articlesJson.map((json) => Post.fromJson(json)).toList();
+          isLoading = false;
+        });
+      } else {
+        throw Exception('Failed to load articles');
+      }
+    } catch (error) {
+      print('Error fetching articles: $error');
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   void _updateAutoScroll() {
@@ -123,10 +136,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
-  void _shufflePosts() {
+  // Replace _shufflePosts with refresh method
+  Future<void> _refreshPosts() async {
     setState(() {
-      posts.shuffle(Random());
+      isLoading = true;
     });
+    await _fetchRecommendedArticles();
   }
 
   // Show comments bottom sheet
@@ -147,10 +162,18 @@ class _ScrollScreenState extends State<ScrollScreen> {
     );
   }
 
+  // Update the build method to handle loading state
   @override
   Widget build(BuildContext context) {
     // Get theme brightness to adapt UI accordingly
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    if (isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: Text("TikTok Wikipedia")),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -180,9 +203,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          _shufflePosts();
-        },
+        onRefresh: _refreshPosts,
         child: PageView.builder(
           controller: _pageController,
           scrollDirection: Axis.vertical,
@@ -193,6 +214,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
             _startTrackingTime(index);
           },
           itemBuilder: (context, index) {
+            final post = posts[index];
             return Card(
               margin: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
               elevation: 4,
@@ -207,7 +229,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                     height: MediaQuery.of(context).size.height * 0.35,
                     width: double.infinity,
                     child: Image.network(
-                      posts[index].image,
+                      post.imageUrl, // Updated to use imageUrl
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
@@ -263,9 +285,19 @@ class _ScrollScreenState extends State<ScrollScreen> {
                             // Description text
                             Expanded(
                               child: SingleChildScrollView(
-                                child: Text(
-                                  posts[index].description,
-                                  style: Theme.of(context).textTheme.bodyLarge,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      post.title,
+                                      style: Theme.of(context).textTheme.titleLarge,
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      post.summary,
+                                      style: Theme.of(context).textTheme.bodyLarge,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
@@ -283,7 +315,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                       horizontal: 0,
                                     ),
                                     child: Text(
-                                      "SOURCE: ${posts[index].source}",
+                                      "Domain: ${post.domain.toUpperCase()}",
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.bold,
@@ -305,7 +337,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                     children: [
                                       IconButton(
                                         icon: Icon(
-                                          posts[index].isLiked
+                                          post.isLiked
                                               ? Icons.favorite
                                               : Icons.favorite_border,
                                           color: Colors.red,
@@ -313,8 +345,8 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                         ),
                                         onPressed: () {
                                           setState(() {
-                                            posts[index].isLiked =
-                                                !posts[index].isLiked;
+                                            post.isLiked =
+                                                !post.isLiked;
                                           
                                           });
                                         },
@@ -334,7 +366,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                       IconButton(
                                         icon: Icon(
                                           _bookmarkService.isBookmarked(
-                                                posts[index],
+                                                post,
                                               )
                                               ? Icons.bookmark
                                               : Icons.bookmark_border,
@@ -346,7 +378,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                           setState(() {
                                             // Toggle bookmark status using the service
                                             _bookmarkService.toggleBookmark(
-                                              posts[index],
+                                              post,
                                             );
                                           });
 
@@ -357,7 +389,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                             SnackBar(
                                               content: Text(
                                                 _bookmarkService.isBookmarked(
-                                                      posts[index],
+                                                      post,
                                                     )
                                                     ? "Article bookmarked"
                                                     : "Bookmark removed",
