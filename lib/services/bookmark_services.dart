@@ -20,7 +20,7 @@ class BookmarkService extends ChangeNotifier {
   // Check if a post is bookmarked
   bool isBookmarked(Post post) {
     return _bookmarkedPosts.any((p) => 
-      p.image == post.image && p.description == post.description);
+      p.imageUrl == post.imageUrl && p.summary == post.summary);
   }
   
   // Add a bookmark
@@ -34,7 +34,7 @@ class BookmarkService extends ChangeNotifier {
   // Remove a bookmark
   void removeBookmark(Post post) {
     _bookmarkedPosts.removeWhere((p) => 
-      p.image == post.image && p.description == post.description);
+      p.imageUrl == post.imageUrl && p.summary == post.summary);
     notifyListeners();
   }
   

@@ -12,10 +12,8 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreenState extends State<DetailScreen> {
-  // List of article sections
   List<ArticleSection> sections = [];
   bool _isLoading = true;
-  // Controller to track scroll position
   final ScrollController _scrollController = ScrollController();
   bool _showTitleInAppBar = false;
   final double _appBarTitleThreshold = 250.0;
@@ -23,10 +21,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    // Load article sections from API
     _loadArticleSections();
-
-    // Add scroll listener to show/hide title in app bar
     _scrollController.addListener(_onScroll);
   }
 
@@ -46,62 +41,25 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  // This method would fetch data from your API
-  // For now, we're simulating an API call with a Future.delayed
   Future<void> _loadArticleSections() async {
-    // Simulate API loading delay
-    await Future.delayed(Duration(milliseconds: 500));
+    await Future.delayed(Duration(milliseconds: 500)); // Simulate loading
 
-    // In a real app, you'd fetch data from your API
-    // final response = await apiService.getArticleSections(widget.post.id);
-    // final List<dynamic> sectionsData = response.data;
+    // Convert post sections to ArticleSection objects
+    final parsedSections = widget.post.sections.map((section) {
+      return ArticleSection(
+        title: section.title,
+        content: section.content,
+        isExpanded: false, // First two will be set to true below
+      );
+    }).toList();
 
-    // For demonstration, we'll use dummy data
-    // This would be replaced with actual API data parsing
-    List<Map<String, dynamic>> apiSectionsData = [
-      {'title': 'Introduction', 'content': widget.post.description},
-      {
-        'title': 'Overview',
-        'content':
-            "This section provides an overview of the topic. ${widget.post.description} "
-            "The information here gives readers context about the subject matter and its importance.",
-      },
-      {
-        'title': 'History',
-        'content':
-            "The historical background of this topic dates back many years. "
-            "The evolution of ${widget.post.source} publications on this subject shows how understanding has developed over time.",
-      },
-      {
-        'title': 'Applications',
-        'content':
-            "There are numerous practical applications for this knowledge. "
-            "Industries ranging from technology to healthcare have implemented these concepts in various ways.",
-      },
-      {
-        'title': 'Scientific Analysis',
-        'content':
-            "Scientific studies have examined this topic from multiple angles. "
-            "Research published in ${widget.post.source} demonstrated significant findings related to this subject.",
-      },
-      {
-        'title': 'References',
-        'content':
-            "1. ${widget.post.source} (${DateTime.now().year}). Primary research on the topic.\n"
-            "2. International Journal of ${widget.post.source.split(' ')[0]} (${DateTime.now().year - 2}). Comparative analysis.",
-      },
-    ];
-
-    // Parse API data into ArticleSection objects
-    final parsedSections =
-        apiSectionsData.map((sectionData) {
-          return ArticleSection(
-            title: sectionData['title'] ?? 'Untitled Section',
-            content: sectionData['content'] ?? 'No content available',
-            // First two sections expanded by default
-            isExpanded: apiSectionsData.indexOf(sectionData) < 2,
-          );
-        }).toList();
+    // Set first two sections as expanded by default
+    if (parsedSections.isNotEmpty) {
+      parsedSections[0].isExpanded = true;
+    }
+    if (parsedSections.length > 1) {
+      parsedSections[1].isExpanded = true;
+    }
 
     if (mounted) {
       setState(() {
@@ -113,12 +71,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Get theme brightness to adapt UI accordingly
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
-
-    // Get article title for app bar
-    final articleTitle = widget.post.description.split('.').first + ".";
+    
+    // Use post title instead of description
+    final articleTitle = widget.post.title;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -127,7 +84,6 @@ class _DetailScreenState extends State<DetailScreen> {
           controller: _scrollController,
           physics: const BouncingScrollPhysics(),
           slivers: [
-            // App Bar with Image (modified to show/hide title while scrolling)
             SliverAppBar(
               expandedHeight: 250.0,
               floating: false,
@@ -150,14 +106,13 @@ class _DetailScreenState extends State<DetailScreen> {
                       )
                       : null,
               flexibleSpace: FlexibleSpaceBar(
-                // Removed source text from here
                 background: Hero(
-                  tag: widget.post.image,
+                  tag: widget.post.imageUrl, // Updated to use imageUrl
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       Image.network(
-                        widget.post.image,
+                        widget.post.imageUrl, // Updated to use imageUrl
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
@@ -229,7 +184,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   onPressed: () {
                     Clipboard.setData(
-                      ClipboardData(text: widget.post.description),
+                      ClipboardData(text: widget.post.summary),
                     );
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text("Content copied to clipboard")),
@@ -240,40 +195,41 @@ class _DetailScreenState extends State<DetailScreen> {
               ],
             ),
 
-            // Content Section with expandable sections
             SliverToBoxAdapter(
               child: Container(
                 padding: EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title / First line as heading
                     Text(
-                      articleTitle,
+                      widget.post.title, // Updated to use title
                       style: Theme.of(context).textTheme.displayMedium
                           ?.copyWith(fontSize: 24, height: 1.3),
                     ),
                     SizedBox(height: 24),
 
-                    // Loading indicator or sections
+                    // Show summary before sections
+                    Text(
+                      widget.post.summary,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        height: 1.6,
+                        fontSize: 16,
+                      ),
+                    ),
+                    SizedBox(height: 24),
+
                     _isLoading
                         ? _buildLoadingIndicator(theme)
                         : Column(
-                          children:
-                              sections
-                                  .map(
-                                    (section) => _buildExpandableSection(
-                                      section,
-                                      context,
-                                      isDarkMode,
-                                    ),
-                                  )
-                                  .toList(),
-                        ),
+                            children: sections
+                                .map((section) => _buildExpandableSection(
+                                    section, context, isDarkMode))
+                                .toList(),
+                          ),
 
                     SizedBox(height: 30),
 
-                    // Source information (keeping existing code)
+                    // Update source information
                     Container(
                       padding: EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
@@ -294,20 +250,14 @@ class _DetailScreenState extends State<DetailScreen> {
                             height: 40,
                             width: 40,
                             decoration: BoxDecoration(
-                              color:
-                                  isDarkMode
-                                      ? Colors.grey[700]
-                                      : Colors.grey[300],
+                              color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
                               shape: BoxShape.circle,
                             ),
                             child: Center(
                               child: Text(
-                                widget.post.source.substring(0, 1),
+                                widget.post.domain.substring(0, 1).toUpperCase(),
                                 style: TextStyle(
-                                  color:
-                                      isDarkMode
-                                          ? Colors.white
-                                          : Colors.black87,
+                                  color: isDarkMode ? Colors.white : Colors.black87,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -318,24 +268,18 @@ class _DetailScreenState extends State<DetailScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                widget.post.source,
+                                widget.post.domain.toUpperCase(),
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color:
-                                      isDarkMode
-                                          ? Colors.white
-                                          : Colors.black87,
+                                  color: isDarkMode ? Colors.white : Colors.black87,
                                 ),
                               ),
                               SizedBox(height: 4),
                               Text(
-                                "Published on ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}",
+                                "Published on ${widget.post.createdAt}",
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color:
-                                      isDarkMode
-                                          ? Colors.grey[400]
-                                          : Colors.grey[600],
+                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                                 ),
                               ),
                             ],
@@ -343,8 +287,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         ],
                       ),
                     ),
-
-                    SizedBox(height: 50), // Extra space at the bottom
+                    SizedBox(height: 50),
                   ],
                 ),
               ),
@@ -355,7 +298,6 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  // Loading indicator widget
   Widget _buildLoadingIndicator(ThemeData theme) {
     return Center(
       child: Column(
@@ -373,7 +315,6 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  // Expandable section widget
   Widget _buildExpandableSection(
     ArticleSection section,
     BuildContext context,
@@ -391,7 +332,6 @@ class _DetailScreenState extends State<DetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Section header/title with expand/collapse button
           InkWell(
             onTap: () {
               setState(() {
@@ -422,8 +362,6 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
           ),
-
-          // Section content (only visible when expanded)
           AnimatedCrossFade(
             firstChild: Container(height: 0),
             secondChild: Padding(
@@ -448,7 +386,6 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 }
 
-// Model for article sections
 class ArticleSection {
   final String title;
   final String content;
@@ -460,7 +397,6 @@ class ArticleSection {
     this.isExpanded = false,
   });
 
-  // Factory constructor to create from API JSON
   factory ArticleSection.fromJson(Map<String, dynamic> json) {
     return ArticleSection(
       title: json['title'] ?? 'Untitled',
