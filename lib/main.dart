@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tik_tok_wikipidiea/Auth/AuthScreen.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
+import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 
 void main() async {

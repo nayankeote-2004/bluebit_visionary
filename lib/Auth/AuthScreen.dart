@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
+import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/screens/home/infinite_scroll.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart'; // Import the theme service
 
@@ -382,7 +383,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 onPressed: () {
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
-                                      builder: (context) => BottomNavBar(),
+                                      builder: (context) => UserInterestPage(),
                                     ),
                                   );
                                 },
