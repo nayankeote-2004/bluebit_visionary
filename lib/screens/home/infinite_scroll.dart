@@ -137,6 +137,66 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
+  // Add this function at the top of _ScrollScreenState class
+  Future<void> _toggleLike(Post post) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/domains/${post.domain}/articles/${post.id}/like/$userId'),
+        headers: {'Content-Type': 'application/json'},
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          post.isLiked = !post.isLiked;
+        });
+      } else {
+        throw Exception('Failed to toggle like');
+      }
+    } catch (error) {
+      print('Error toggling like: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update like status'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Add this function in the _ScrollScreenState class
+  Future<void> _shareArticle(Post post) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/domains/${post.domain}/articles/${post.id}/share'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': userId,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Article shared successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to share article');
+      }
+    } catch (error) {
+      print('Error sharing article: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to share article'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // Replace _shufflePosts with refresh method
   Future<void> _refreshPosts() async {
     setState(() {
@@ -145,21 +205,92 @@ class _ScrollScreenState extends State<ScrollScreen> {
     await _fetchRecommendedArticles();
   }
 
+  // Add this function to the _ScrollScreenState class
+  Future<void> _addComment(Post post, String commentText) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/domains/${post.domain}/articles/${post.id}/comment'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': userId,
+          'comment': commentText,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          post.comments.add(commentText);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Comment added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to add comment');
+      }
+    } catch (error) {
+      print('Error adding comment: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add comment'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   // Show comments bottom sheet
   void _showComments(Post post) {
+    final TextEditingController commentController = TextEditingController();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder:
-          (context) => Container(
-            height: MediaQuery.of(context).size.height * 0.7,
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            CommentsSheet(post: post),
+            Padding(
+              padding: EdgeInsets.fromLTRB(16, 8, 16, 
+                MediaQuery.of(context).viewInsets.bottom + 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: commentController,
+                      decoration: InputDecoration(
+                        hintText: 'Add a comment...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.send),
+                    onPressed: () async {
+                      if (commentController.text.isNotEmpty) {
+                        await _addComment(post, commentController.text);
+                        commentController.clear();
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                ],
+              ),
             ),
-            child: CommentsSheet(post: post),
-          ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -454,28 +585,22 @@ class _ScrollScreenState extends State<ScrollScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
                           _buildActionButton(
-                            icon:
-                                post.isLiked
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
+                            icon: post.isLiked ? Icons.favorite : Icons.favorite_border,
                             color: Colors.red,
-                            onPressed: () {
-                              setState(() {
-                                post.isLiked = !post.isLiked;
-                              });
-                            },
+                            onPressed: () => _toggleLike(post),
                           ),
                           _buildActionButton(
                             icon: Icons.comment_outlined,
-                            onPressed: () {
-                              _showComments(post);
-                            },
+                            onPressed: () => _showComments(post),
                           ),
                           _buildActionButton(
-                            icon:
-                                _bookmarkService.isBookmarked(post)
-                                    ? Icons.bookmark
-                                    : Icons.bookmark_border,
+                            icon: Icons.share_outlined,
+                            onPressed: () => _shareArticle(post),
+                          ),
+                          _buildActionButton(
+                            icon: _bookmarkService.isBookmarked(post)
+                                ? Icons.bookmark
+                                : Icons.bookmark_border,
                             onPressed: () {
                               setState(() {
                                 _bookmarkService.toggleBookmark(post);
