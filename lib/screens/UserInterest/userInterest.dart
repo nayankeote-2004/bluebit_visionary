@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 
-class UserInterestPage extends StatefulWidget {
-  const UserInterestPage({Key? key}) : super(key: key);
+import '../../config.dart';
 
+class UserInterestPage extends StatefulWidget {
+  const UserInterestPage({Key? key, required Map<String, String> authData})
+    : authData = authData,
+      super(key: key);
+  final Map<String, String> authData;
   @override
   _UserInterestPageState createState() => _UserInterestPageState();
 }
@@ -198,10 +204,59 @@ class _UserInterestPageState extends State<UserInterestPage>
                   child: ElevatedButton(
                     onPressed:
                         interestList.isNotEmpty
-                            ? () {
-                              // You can now use the interestList for next processes
-                              print('Selected interests: $interestList');
-                              Navigator.of(context).pushReplacement(MaterialPageRoute(builder:(context) => BottomNavBar()));
+                            ? () async {
+                              final baseUrl =
+                                  Config
+                                      .baseUrl; // Replace with your actual base URL
+                              final signupEndpoint = '$baseUrl/signup';
+                              print(widget.authData);
+                              final signupData = {
+                                'fullname': widget.authData['name'],
+                                'email': widget.authData['email'],
+                                'phone': widget.authData['phone'],
+                                'password': widget.authData['password'],
+                                'bio': widget.authData['bio'],
+                                'interestedDomain': interestList,
+                              };
+
+                              final response = await http.post(
+                                Uri.parse(signupEndpoint),
+                                headers: {'Content-Type': 'application/json'},
+                                body: json.encode(signupData),
+                              );
+
+                              if (response.statusCode == 201) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      'Registration successful! Please login.',
+                                    ),
+                                    backgroundColor:
+                                        Theme.of(context).primaryColor,
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                );
+
+                                // Remove isLogin as it's not defined in this class
+                                // setState(() {
+                                //   isLogin = true;
+                                // });
+
+                                print('Selected interests: $interestList');
+                                Navigator.of(context).pushReplacement(
+                                  MaterialPageRoute(
+                                    builder: (context) => BottomNavBar(),
+                                  ),
+                                );
+                              } else {
+                                print(json.decode(response.body)['error']);
+                                throw Exception(
+                                  json.decode(response.body)['error'],
+                                );
+                              }
                             }
                             : null,
                     style: ElevatedButton.styleFrom(

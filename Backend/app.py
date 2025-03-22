@@ -7,6 +7,7 @@ from flask_bcrypt import Bcrypt
 from pymongo import MongoClient
 import re
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -27,7 +28,7 @@ def get_wikipedia_data(topic):
     )
     
     # Search for pages related to the topic
-    search_results = wikipedia.search(topic, results=5)  # Get up to 5 related pages
+    search_results = wikipedia.search(topic, results=100)  # Get up to 5 related pages
     data = []
     
     try:
@@ -165,7 +166,6 @@ def signup():
     if not re.match(email_regex, data['email']):
         return jsonify({"error": "Invalid email format"}), 400
     
-    
     # Check if email already exists
     if users_collection.find_one({"email": data['email']}):
         return jsonify({"error": "Email already registered"}), 409
@@ -174,14 +174,17 @@ def signup():
     if users_collection.find_one({"phone": data['phone']}):
         return jsonify({"error": "Phone number already registered"}), 409
     
-    # Prepare user document
+    # Prepare user document with arrays to track interactions
     user = {
         "fullName": data['fullName'],
         "email": data['email'],
         "phone": data['phone'],
         "password": bcrypt.generate_password_hash(data['password']).decode('utf-8'),
         "bio": data.get('bio', ''),  # Optional field
-        "interestedDomains": data.get('interestedDomains', [])  # Optional field
+        "interestedDomains": data.get('interestedDomains', []),  # Optional field
+        "likedArticles": [],  # Array to store liked articles
+        "commentedArticles": [],  # Array to store commented articles 
+        "sharedArticles": []  # Array to store shared articles
     }
     
     # Insert user into database
@@ -189,13 +192,15 @@ def signup():
     
     if result.inserted_id:
         # Remove password from response and create a response dict
-        # This avoids the ObjectId serialization issue
         response_user = {
             "fullName": user["fullName"],
             "email": user["email"],
             "phone": user["phone"],
             "bio": user["bio"],
-            "interestedDomains": user["interestedDomains"]
+            "interestedDomains": user["interestedDomains"],
+            "likedArticles": [],
+            "commentedArticles": [],
+            "sharedArticles": []
         }
         
         return jsonify({
@@ -261,7 +266,6 @@ def update_user_domains():
     
 #Login
 # Add this after the signup route and before the user/domains route
-
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
@@ -286,7 +290,12 @@ def login():
                 "email": user["email"],
                 "phone": user["phone"],
                 "bio": user.get("bio", ""),
-                "interestedDomains": user.get("interestedDomains", [])
+                "interestedDomains": user.get("interestedDomains", []),
+                "interactions": {
+                    "likedArticles": user.get("likedArticles", []),
+                    "commentedArticles": user.get("commentedArticles", []),
+                    "sharedArticles": user.get("sharedArticles", [])
+                }
             }
             
             return jsonify({
@@ -300,6 +309,313 @@ def login():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
+
+
+
+# Add this after the login route and before if __name__ == '__main__'
+
+@app.route('/populate-domains', methods=['POST'])
+def populate_domains():
+    domains = [
+        "Nature", "Education", "Entertainment", "Technology", 
+        "Science", "Political", "Lifestyle", "Social", 
+        "Space", "Food"
+    ]
+    
+    results = {}
+    
+    try:
+        for domain in domains:
+            # Create collection for domain if it doesn't exist
+            collection_name = domain.lower()
+            domain_collection = db[collection_name]
+            
+            # Get Wikipedia data for the domain
+            wiki_data = get_wikipedia_data(domain)
+            
+            if wiki_data:
+                # Process and store each page
+                for page_data in wiki_data:
+                    # Calculate estimated reading time (avg reading speed: 200 words per minute)
+                    summary_word_count = len(page_data["summary"].split())
+                    sections_word_count = sum(len(section["content"].split()) for section in page_data["sections"])
+                    total_words = summary_word_count + sections_word_count
+                    reading_time = max(1, round(total_words / 200))  # in minutes, minimum 1 minute
+                    
+                    # Check if page already exists in collection
+                    existing_page = domain_collection.find_one({"id": page_data["id"]})
+                    
+                    if not existing_page:
+                        # Add additional fields to the page data
+                        page_data["likes"] = 0
+                        page_data["comments"] = []
+                        page_data["reading_time"] = reading_time
+                        page_data["created_at"] = datetime.now()
+                        
+                        # Insert into collection
+                        domain_collection.insert_one(page_data)
+                
+                results[domain] = f"Added {len(wiki_data)} articles"
+            else:
+                results[domain] = "No data found"
+        
+        return jsonify({
+            "message": "Domain data population completed",
+            "results": results
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+# Add routes to interact with domain collections
+@app.route('/domains/<domain>/articles', methods=['GET'])
+def get_domain_articles(domain):
+    try:
+        # Validate domain name
+        valid_domains = [
+            "nature", "education", "entertainment", "technology", 
+            "science", "political", "lifestyle", "social", 
+            "space", "food"
+        ]
+        
+        domain = domain.lower()
+        if domain not in valid_domains:
+            return jsonify({"error": "Invalid domain"}), 400
+            
+        # Get articles from the domain collection
+        domain_collection = db[domain]
+        articles = list(domain_collection.find({}, {"_id": 0}))
+        
+        return jsonify(articles), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/domains/<domain>/articles/<article_id>/like', methods=['POST'])
+def like_article(domain, article_id):
+    data = request.json
+    
+    if not data or 'userId' not in data:
+        return jsonify({"error": "User ID is required"}), 400
+        
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)  # Convert to integer as Wikipedia page IDs are integers
+        
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        user_id = ObjectId(data['userId'])
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get the domain collection
+        domain_collection = db[domain]
+        
+        # Get article info
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+            
+        article_title = article.get("title", "Unknown article")
+        
+        # Check if user already liked this article
+        liked_article = next((item for item in user.get("likedArticles", []) 
+                             if item.get("articleId") == article_id and item.get("domain") == domain), None)
+        
+        if liked_article:
+            # User already liked this article, unlike it
+            users_collection.update_one(
+                {"_id": user_id},
+                {"$pull": {"likedArticles": {"articleId": article_id, "domain": domain}}}
+            )
+            
+            # Decrease like count in article
+            domain_collection.update_one(
+                {"id": article_id},
+                {"$inc": {"likes": -1}}
+            )
+            
+            return jsonify({"message": "Article unliked successfully"}), 200
+            
+        else:
+            # User is liking the article for the first time
+            like_info = {
+                "articleId": article_id,
+                "domain": domain,
+                "articleTitle": article_title,
+                "likedAt": datetime.now()
+            }
+            
+            # Add to user's liked articles
+            users_collection.update_one(
+                {"_id": user_id},
+                {"$push": {"likedArticles": like_info}}
+            )
+            
+            # Update the article's like count
+            domain_collection.update_one(
+                {"id": article_id},
+                {"$inc": {"likes": 1}}
+            )
+            
+            return jsonify({"message": "Article liked successfully"}), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+# Add route to comment on an article
+@app.route('/domains/<domain>/articles/<article_id>/comment', methods=['POST'])
+def add_comment(domain, article_id):
+    data = request.json
+    
+    if not data or 'comment' not in data or not data['comment']:
+        return jsonify({"error": "Comment text is required"}), 400
+        
+    if 'userId' not in data:
+        return jsonify({"error": "User ID is required"}), 400
+        
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)
+        
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        user_id = ObjectId(data['userId'])
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get domain collection
+        domain_collection = db[domain]
+        
+        # Get article info
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+            
+        article_title = article.get("title", "Unknown article")
+        
+        # Generate a unique comment ID
+        from uuid import uuid4
+        comment_id = str(uuid4())
+        
+        # Create comment object
+        comment = {
+            "id": comment_id,
+            "user_id": str(user_id),
+            "user_name": user['fullName'],
+            "text": data['comment'],
+            "timestamp": datetime.now()
+        }
+        
+        # Add comment to article
+        domain_collection.update_one(
+            {"id": article_id},
+            {"$push": {"comments": comment}}
+        )
+        
+        # Add to user's commented articles
+        comment_info = {
+            "commentId": comment_id,
+            "articleId": article_id,
+            "domain": domain,
+            "articleTitle": article_title,
+            "commentText": data['comment'],
+            "commentedAt": datetime.now()
+        }
+        
+        users_collection.update_one(
+            {"_id": user_id},
+            {"$push": {"commentedArticles": comment_info}}
+        )
+        
+        return jsonify({
+            "message": "Comment added successfully",
+            "comment": comment
+        }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
+@app.route('/domains/<domain>/articles/<article_id>/share', methods=['POST'])
+def share_article(domain, article_id):
+    data = request.json
+    
+    if not data or 'userId' not in data:
+        return jsonify({"error": "User ID is required"}), 400
+        
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)
+        
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        user_id = ObjectId(data['userId'])
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+            
+        # Get the domain collection
+        domain_collection = db[domain]
+        
+        # Get article info
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+            
+        article_title = article.get("title", "Unknown article")
+        
+        # Add to user's shared articles
+        share_info = {
+            "articleId": article_id,
+            "domain": domain,
+            "articleTitle": article_title,
+            "sharedAt": datetime.now(),
+            "sharedTo": data.get('sharedTo', 'public')  # Where the article was shared to
+        }
+        
+        users_collection.update_one(
+            {"_id": user_id},
+            {"$push": {"sharedArticles": share_info}}
+        )
+        
+        return jsonify({"message": "Article shared successfully"}), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
+@app.route('/user/<user_id>/interactions', methods=['GET'])
+def get_user_interactions(user_id):
+    try:
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        user_id_obj = ObjectId(user_id)
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id_obj})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Create a response without password and with string ID
+        interactions = {
+            "likedArticles": user.get("likedArticles", []),
+            "commentedArticles": user.get("commentedArticles", []),
+            "sharedArticles": user.get("sharedArticles", [])
+        }
+        
+        return jsonify(interactions), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
