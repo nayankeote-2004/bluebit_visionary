@@ -187,29 +187,94 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icon(Icons.logout),
             tooltip: 'Logout',
             onPressed: () {
-              // Show confirmation dialog
+              // Show enhanced confirmation dialog
               showDialog(
                 context: context,
                 builder:
-                    (context) => AlertDialog(
-                      title: Text('Logout'),
-                      content: Text('Are you sure you want to logout?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: Text('Cancel'),
+                    (context) => Dialog(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      elevation: 8,
+                      child: Container(
+                        padding: EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: theme.primaryColor.withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.logout_rounded,
+                                color: theme.primaryColor,
+                                size: 32,
+                              ),
+                            ),
+                            SizedBox(height: 24),
+                            Text(
+                              'Logout',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'Are you sure you want to log out of your account?',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            SizedBox(height: 32),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed:
+                                        () => Navigator.of(context).pop(),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      side: BorderSide(
+                                        color: theme.primaryColor,
+                                      ),
+                                    ),
+                                    child: Text('Cancel'),
+                                  ),
+                                ),
+                                SizedBox(width: 16),
+                                Expanded(
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      // Implement logout functionality here
+                                      // For example: AuthService().logout();
+                                      Navigator.of(context).pop();
+                                      // Navigate to login screen
+                                      // Navigator.of(context).pushReplacementNamed('/login');
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 12,
+                                      ),
+                                      backgroundColor: theme.primaryColor,
+                                      foregroundColor: Colors.white,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: Text('Logout'),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
-                        TextButton(
-                          onPressed: () {
-                            // Implement logout functionality here
-                            // For example: AuthService().logout();
-                            Navigator.of(context).pop();
-                            // Navigate to login screen
-                            // Navigator.of(context).pushReplacementNamed('/login');
-                          },
-                          child: Text('Logout'),
-                        ),
-                      ],
+                      ),
                     ),
               );
             },
