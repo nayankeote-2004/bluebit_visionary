@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tik_tok_wikipidiea/screens/profile/book_mark.dart';
 import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 import 'dart:async';
@@ -40,18 +41,31 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
-    // Initialize from service
+    // Initialize from services
     _autoScrollEnabled = _autoScrollService.enabled;
     _scrollInterval = _autoScrollService.intervalSeconds;
 
-    // Initialize theme from service
+    // Ensure we get the current theme status from the service
     _isDarkMode = _themeService.isDarkMode;
+
+    // Listen for theme changes from other parts of the app
+    _themeService.addListener(_onThemeChanged);
+  }
+
+  // Add this method to update UI when theme changes from elsewhere
+  void _onThemeChanged(ThemeMode mode) {
+    if (mounted) {
+      setState(() {
+        _isDarkMode = mode == ThemeMode.dark;
+      });
+    }
   }
 
   @override
   void dispose() {
     _scrollTimer?.cancel();
     _scrollController.dispose();
+    _themeService.removeListener(_onThemeChanged);
     super.dispose();
   }
 
@@ -363,11 +377,53 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   SizedBox(height: 16),
 
-                  // Sample stats - replace with actual user stats
+                  // Articles Read - regular stat
                   _buildStatRow('Articles Read', '42', theme),
                   SizedBox(height: 12),
-                  _buildStatRow('Bookmarks', '15', theme),
+
+                  // Bookmarks - clickable stat that navigates to bookmarks page
+                  InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BookmarksPage(),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'Bookmarks',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              SizedBox(width: 4),
+                              Icon(
+                                Icons.arrow_forward_ios,
+                                size: 12,
+                                color: theme.iconTheme.color,
+                              ),
+                            ],
+                          ),
+                          Text(
+                            '15', // This would normally come from a real count
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: theme.primaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   SizedBox(height: 12),
+
+                  // Comments - regular stat
                   _buildStatRow('Comments', '7', theme),
                 ],
               ),

@@ -120,14 +120,6 @@ class _UserInterestPageState extends State<UserInterestPage>
                   children: [
                     Row(
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            Icons.arrow_back_ios,
-                            size: 20,
-                            color: theme.textTheme.bodyLarge!.color,
-                          ),
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
                         const Spacer(),
                         Text(
                           'Set Up Your Profile',
@@ -209,7 +201,7 @@ class _UserInterestPageState extends State<UserInterestPage>
                             ? () {
                               // You can now use the interestList for next processes
                               print('Selected interests: $interestList');
-                              Navigator.of(context).push(MaterialPageRoute(builder:(context) => BottomNavBar()));
+                              Navigator.of(context).pushReplacement(MaterialPageRoute(builder:(context) => BottomNavBar()));
                             }
                             : null,
                     style: ElevatedButton.styleFrom(

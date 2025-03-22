@@ -24,7 +24,8 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final ThemeService _themeService = ThemeService();
-  ThemeMode _themeMode = ThemeMode.light;
+  // Default to dark theme
+  ThemeMode _themeMode = ThemeMode.dark;
 
   @override
   void initState() {
@@ -85,6 +86,20 @@ class _MyAppState extends State<MyApp> {
         ),
         iconTheme: IconThemeData(color: Colors.white70),
         dividerColor: Colors.grey[800],
+        switchTheme: SwitchThemeData(
+          thumbColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.selected)) {
+              return Colors.blue;
+            }
+            return Colors.grey;
+          }),
+          trackColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.selected)) {
+              return Colors.blue.withOpacity(0.5);
+            }
+            return Colors.grey.withOpacity(0.5);
+          }),
+        ),
       ),
 
       // Light theme
@@ -118,6 +133,20 @@ class _MyAppState extends State<MyApp> {
         ),
         iconTheme: IconThemeData(color: Colors.black54),
         dividerColor: Colors.grey[300],
+        switchTheme: SwitchThemeData(
+          thumbColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.selected)) {
+              return Colors.blue;
+            }
+            return Colors.grey;
+          }),
+          trackColor: MaterialStateProperty.resolveWith((states) {
+            if (states.contains(MaterialState.selected)) {
+              return Colors.blue.withOpacity(0.5);
+            }
+            return Colors.grey.withOpacity(0.3);
+          }),
+        ),
       ),
 
       home: AuthScreen(),

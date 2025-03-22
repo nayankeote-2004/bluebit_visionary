@@ -5,8 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
-import 'package:tik_tok_wikipidiea/screens/home/infinite_scroll.dart';
-import 'package:tik_tok_wikipidiea/services/theme_render.dart'; // Import the theme service
+import 'package:tik_tok_wikipidiea/services/theme_render.dart';
+
+import '../config.dart'; 
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -85,11 +86,11 @@ class _AuthScreenState extends State<AuthScreen>
       _isLoading = true;
     });
 
-    final baseUrl = 'replace here url';
+    final baseUrl = Config.baseUrl;
     try {
       if (isLogin) {
         final response = await http.post(
-          Uri.parse('$baseUrl/auth/login'),
+          Uri.parse('$baseUrl/login'),
           headers: {'Content-Type': 'application/json'},
           body: json.encode({
             'email': _authData['email'],
@@ -100,9 +101,8 @@ class _AuthScreenState extends State<AuthScreen>
         if (response.statusCode == 200) {
           final responseData = json.decode(response.body);
           print("responseData is   ${responseData}");
+         
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('access_token', responseData['access_token']);
-          await prefs.setString('refresh_token', responseData['refresh_token']);
           await prefs.setString(
             'user_id',
             responseData['user']['id'].toString(),
@@ -381,7 +381,7 @@ class _AuthScreenState extends State<AuthScreen>
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
                                 onPressed: () {
-                                  Navigator.of(context).push(
+                                  Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
                                       builder: (context) => UserInterestPage(),
                                     ),

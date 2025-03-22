@@ -5,8 +5,11 @@ import 'package:tik_tok_wikipidiea/models/post_content.dart';
 import 'dart:math';
 import 'dart:async';
 import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
+import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
 
 class ScrollScreen extends StatefulWidget {
+  const ScrollScreen({super.key});
+
   @override
   _ScrollScreenState createState() => _ScrollScreenState();
 }
@@ -51,6 +54,9 @@ class _ScrollScreenState extends State<ScrollScreen> {
   int _currentIndex = 0;
   DateTime? _pageViewStartTime;
   Map<int, Duration> _readingTimes = {};
+
+  // Bookmark service
+  final BookmarkService _bookmarkService = BookmarkService();
 
   @override
   void initState() {
@@ -111,7 +117,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
       }
 
       print(
-        'Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
+        '============================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
       );
     }
   }
@@ -319,17 +325,36 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                       ),
                                       IconButton(
                                         icon: Icon(
-                                          Icons.bookmark_border,
+                                          _bookmarkService.isBookmarked(
+                                                posts[index],
+                                              )
+                                              ? Icons.bookmark
+                                              : Icons.bookmark_border,
                                           size: 22,
                                           color:
                                               Theme.of(context).iconTheme.color,
                                         ),
                                         onPressed: () {
+                                          setState(() {
+                                            // Toggle bookmark status using the service
+                                            _bookmarkService.toggleBookmark(
+                                              posts[index],
+                                            );
+                                          });
+
+                                          // Show appropriate message
                                           ScaffoldMessenger.of(
                                             context,
                                           ).showSnackBar(
                                             SnackBar(
-                                              content: Text("Article saved"),
+                                              content: Text(
+                                                _bookmarkService.isBookmarked(
+                                                      posts[index],
+                                                    )
+                                                    ? "Article bookmarked"
+                                                    : "Bookmark removed",
+                                              ),
+                                              duration: Duration(seconds: 1),
                                             ),
                                           );
                                         },
