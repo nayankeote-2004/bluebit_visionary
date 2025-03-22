@@ -19,7 +19,8 @@ class ScrollScreen extends StatefulWidget {
   _ScrollScreenState createState() => _ScrollScreenState();
 }
 
-class _ScrollScreenState extends State<ScrollScreen> {
+class _ScrollScreenState extends State<ScrollScreen>
+    with SingleTickerProviderStateMixin {
   List<Post> posts = [];
   bool isLoading = true;
   String? userId;
@@ -70,8 +71,16 @@ class _ScrollScreenState extends State<ScrollScreen> {
       if (response.statusCode == 200) {
         final List<dynamic> articlesJson =
             json.decode(response.body)['recommendedArticles'];
+
+        // First, parse all posts from the API response
+        final List<Post> fetchedPosts =
+            articlesJson.map((json) => Post.fromJson(json)).toList();
+
+        // Then sort them to avoid consecutive posts from same domain
+        final sortedPosts = _sortPostsByDomain(fetchedPosts);
+
         setState(() {
-          posts = articlesJson.map((json) => Post.fromJson(json)).toList();
+          posts = sortedPosts;
           isLoading = false;
         });
       } else {
@@ -79,10 +88,57 @@ class _ScrollScreenState extends State<ScrollScreen> {
       }
     } catch (error) {
       print('Error fetching articles: $error');
-      setState(() {
-        isLoading = false;
-      });
     }
+  }
+
+  // This method sorts posts to avoid consecutive posts from the same domain
+  List<Post> _sortPostsByDomain(List<Post> unsortedPosts) {
+    if (unsortedPosts.isEmpty) return [];
+
+    // First shuffle the posts for initial randomization
+    final shuffledPosts = List<Post>.from(unsortedPosts)..shuffle(Random());
+
+    // Group posts by domain
+    final Map<String, List<Post>> postsByDomain = {};
+    for (var post in shuffledPosts) {
+      if (!postsByDomain.containsKey(post.domain)) {
+        postsByDomain[post.domain] = [];
+      }
+      postsByDomain[post.domain]!.add(post);
+    }
+
+    // Create result list by taking one post from each domain in round-robin fashion
+    final List<Post> result = [];
+    bool added = true;
+
+    while (added) {
+      added = false;
+      postsByDomain.forEach((domain, domainPosts) {
+        if (domainPosts.isNotEmpty) {
+          final lastDomain = result.isNotEmpty ? result.last.domain : '';
+
+          // Only add if this domain is different from the last added post
+          if (domain != lastDomain) {
+            result.add(domainPosts.removeAt(0));
+            added = true;
+          }
+        }
+      });
+
+      // If we couldn't add anything in the last pass but still have posts,
+      // we need to handle the case where only one domain is left
+      if (!added) {
+        for (var domain in postsByDomain.keys) {
+          if (postsByDomain[domain]!.isNotEmpty) {
+            result.add(postsByDomain[domain]!.removeAt(0));
+            added = true;
+            break;
+          }
+        }
+      }
+    }
+
+    return result;
   }
 
   void _updateAutoScroll() {
@@ -135,6 +191,37 @@ class _ScrollScreenState extends State<ScrollScreen> {
         '============================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
       );
     }
+  }
+
+  // Read article function (placeholder for future AI reading)
+  void _readArticle(Post post) {
+    HapticFeedback.mediumImpact(); // Add haptic feedback
+
+    final snackBar = SnackBar(
+      content: Row(
+        children: [
+          Icon(Icons.headphones, color: Colors.white),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              "AI Reading coming soon! This will read the article for you.",
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+      duration: Duration(seconds: 3),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      backgroundColor: Colors.blueGrey[800],
+      action: SnackBarAction(
+        label: 'OK',
+        textColor: Colors.white,
+        onPressed: () {},
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(snackBar);
   }
 
   // Replace _shufflePosts with refresh method
@@ -311,7 +398,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                   ),
                 ),
 
-                // Reading time and domain
+                // Domain badge and reading time
                 Positioned(
                   bottom: 12,
                   left: 16,
@@ -339,7 +426,34 @@ class _ScrollScreenState extends State<ScrollScreen> {
                         ),
                       ),
 
-                      
+                      // Reading time indicator
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.timer_outlined,
+                              size: 14,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              "${post.readingTime} min read",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -410,40 +524,83 @@ class _ScrollScreenState extends State<ScrollScreen> {
                         ),
                       ),
 
-                      // Swipe hint
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Container(
-                          margin: EdgeInsets.only(top: 8, bottom: 4),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                isDarkMode
-                                    ? Colors.grey[800]
-                                    : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.swipe_right_alt,
-                                size: 14,
-                                color: theme.primaryColor,
-                              ),
-                              SizedBox(width: 4),
-                              Text(
-                                "Swipe for more",
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: theme.primaryColor,
+                      // Interactive tips row
+                      Container(
+                        margin: EdgeInsets.only(top: 8, bottom: 10),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // Mini AI read hint
+                            InkWell(
+                              onTap: () => _readArticle(post),
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: theme.primaryColor.withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.headphones,
+                                      size: 14,
+                                      color: theme.primaryColor,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      "Listen",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: theme.primaryColor,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+
+                            // Swipe hint
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color:
+                                    isDarkMode
+                                        ? Colors.grey[800]
+                                        : Colors.grey[200],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.swipe_right_alt,
+                                    size: 14,
+                                    color: theme.primaryColor,
+                                  ),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    "Read more",
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: theme.primaryColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
 
