@@ -575,13 +575,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     textAlign: TextAlign.center,
                   ),
                   SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    icon: Icon(Icons.edit),
-                    label: Text('Edit Profile'),
-                    onPressed: () {
-                      // Navigate to edit profile page
-                    },
-                  ),
                 ],
               ),
             ),
