@@ -4,8 +4,8 @@ import 'dart:ui';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 
 class UserInterestPage extends StatefulWidget {
-  const UserInterestPage({Key? key}) : super(key: key);
-
+  const UserInterestPage({Key? key, required Map<String, String> authData}) : _authData = authData, super(key: key);
+  final Map<String, String> _authData;
   @override
   _UserInterestPageState createState() => _UserInterestPageState();
 }
@@ -199,7 +199,41 @@ class _UserInterestPageState extends State<UserInterestPage>
                     onPressed:
                         interestList.isNotEmpty
                             ? () {
-                              // You can now use the interestList for next processes
+                             
+        final signupEndpoint = '$baseUrl/auth/register';
+
+        final signupData = {
+          'fullname': _authData['name'],
+          'email': _authData['email'],
+          'mobno': _authData['phone'],
+          'password': _authData['password'],
+        };
+
+        final response = await http.post(
+          Uri.parse(signupEndpoint),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(signupData),
+        );
+
+        if (response.statusCode == 201) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Registration successful! Please login.'),
+              backgroundColor: Theme.of(context).primaryColor,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          );
+          setState(() {
+            isLogin = true;
+          });
+        } else {
+          print(json.decode(response.body)['error']);
+          throw Exception(json.decode(response.body)['error']);
+        }
+      
                               print('Selected interests: $interestList');
                               Navigator.of(context).pushReplacement(MaterialPageRoute(builder:(context) => BottomNavBar()));
                             }

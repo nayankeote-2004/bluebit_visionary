@@ -112,54 +112,12 @@ class _AuthScreenState extends State<AuthScreen>
 
           // Print for debugging
           print('User ID: ${responseData['user']['id'].toString()}');
-
-          final userResponse = await http.get(
-            Uri.parse('$baseUrl/auth/me'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${responseData['access_token']}',
-            },
-          );
-
-          if (userResponse.statusCode == 200) {}
         } else {
-          throw Exception(json.decode(response.body)['error']);
-        }
-      } else {
-        final signupEndpoint = '$baseUrl/auth/register';
-
-        final signupData = {
-          'username': _authData['name'],
-          'email': _authData['email'],
-          'mobno': _authData['phone'],
-          'password': _authData['password'],
-        };
-
-        final response = await http.post(
-          Uri.parse(signupEndpoint),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode(signupData),
-        );
-
-        if (response.statusCode == 201) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Registration successful! Please login.'),
-              backgroundColor: Theme.of(context).primaryColor,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          );
-          setState(() {
-            isLogin = true;
-          });
-        } else {
-          print(json.decode(response.body)['error']);
-          throw Exception(json.decode(response.body)['error']);
+          throw json.decode(response.body)['message'];
         }
       }
+          
+      
     } catch (error) {
       showDialog(
         context: context,
@@ -381,6 +339,7 @@ class _AuthScreenState extends State<AuthScreen>
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
                                 onPressed: () {
+                                  _isLoading ? null : isLogin ? _submit() :
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
                                       builder: (context) => UserInterestPage(),
