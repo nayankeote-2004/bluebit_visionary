@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:ui';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 
+import '../../config.dart';
+
 class UserInterestPage extends StatefulWidget {
-  const UserInterestPage({Key? key, required Map<String, String> authData}) : _authData = authData, super(key: key);
-  final Map<String, String> _authData;
+  const UserInterestPage({Key? key, required Map<String, String> authData}) : authData = authData, super(key: key);
+  final Map<String, String> authData;
   @override
   _UserInterestPageState createState() => _UserInterestPageState();
 }
@@ -195,20 +199,20 @@ class _UserInterestPageState extends State<UserInterestPage>
                 child: SizedBox(
                   width: double.infinity,
                   height: 52,
-                  child: ElevatedButton(
-                    onPressed:
                         interestList.isNotEmpty
-                            ? () {
+                            ? () async {
                              
-        final signupEndpoint = '$baseUrl/auth/register';
-
+        final baseUrl = Config.baseUrl; // Replace with your actual base URL
+        final signupEndpoint = '$baseUrl/signup';
         final signupData = {
-          'fullname': _authData['name'],
-          'email': _authData['email'],
-          'mobno': _authData['phone'],
-          'password': _authData['password'],
+          'fullname': widget.authData['name'],
+          'email': widget.authData['email'],
+          'phone': widget.authData['phone'],
+          'password': widget.authData['password'],
+          'bio': widget.authData['bio'],
+          'interestedDomain': interestList,
         };
-
+          
         final response = await http.post(
           Uri.parse(signupEndpoint),
           headers: {'Content-Type': 'application/json'},
@@ -223,9 +227,10 @@ class _UserInterestPageState extends State<UserInterestPage>
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          );
+          // If you need to set a login state, define it in your class
+          // setState(() {
+          //   isLogin = true;
+          // });
           setState(() {
             isLogin = true;
           });

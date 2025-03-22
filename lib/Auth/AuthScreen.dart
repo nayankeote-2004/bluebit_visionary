@@ -8,6 +8,7 @@ import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 
 import '../config.dart';
+import '../screens/UserInterest/userInterest.dart';
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -104,15 +105,22 @@ class _AuthScreenState extends State<AuthScreen>
           print("responseData is   ${responseData}");
 
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(
-            'user_id',
-            responseData['user']['id'].toString(),
-          );
-          await prefs.setString('username', responseData['user']['username']);
-          await prefs.setString('role', responseData['user']['role']);
-
-          // Print for debugging
-          print('User ID: ${responseData['user']['id'].toString()}');
+          
+          await prefs.setString('username', responseData['user']['fullName']);
+          await prefs.setString('email', responseData['user']['email']);
+          await prefs.setString('mobno', responseData['user']['phone']);
+          await prefs.setString('bio', responseData['user']['bio']);
+          
+          await prefs.setString('userId', responseData['user']['userId']);
+  
+          // Store interested domains as a JSON string
+          await prefs.setString('interestedDomains', 
+            json.encode(responseData['user']['interestedDomains']));
+            
+          // Store interactions as a JSON string
+          await prefs.setString('userInteractions', 
+            json.encode(responseData['user']['interactions']));
+            
         } else {
           throw json.decode(response.body)['message'];
         }
@@ -357,11 +365,12 @@ class _AuthScreenState extends State<AuthScreen>
                               height: 46,
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
+
                                 onPressed: () {
                                   _isLoading ? null : isLogin ? _submit() :
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
-                                      builder: (context) => UserInterestPage(),
+                                      builder: (context) => UserInterestPage(authData: _authData),
                                     ),
                                   );
                                 },
