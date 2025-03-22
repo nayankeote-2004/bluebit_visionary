@@ -316,8 +316,8 @@ def login():
 
 @app.route('/populate-domains', methods=['POST'])
 def populate_domains():
-    domains = [ 
-        "Space", "Food"
+    domains = [
+        "Nature"
     ]
     
     results = {}
@@ -591,7 +591,6 @@ def share_article(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
-# ...existing code...
 @app.route('/user/<user_id>/interactions', methods=['GET'])
 def get_user_interactions(user_id):
     try:
@@ -612,88 +611,6 @@ def get_user_interactions(user_id):
         }
         
         return jsonify(interactions), 200
-            
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-    
-@app.route('/user/<user_id>/recommended-articles', methods=['GET'])
-def get_recommended_articles(user_id):
-    try:
-        # Convert the string user ID to MongoDB ObjectId
-        from bson.objectid import ObjectId
-        user_id_obj = ObjectId(user_id)
-        
-        # Find the user
-        user = users_collection.find_one({"_id": user_id_obj})
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-        
-        interested_domains = user.get("interestedDomains", [])
-        
-        if not interested_domains:
-            return jsonify({"error": "User has no interested domains selected"}), 404
-        
-        # Convert domain names to lowercase for collection names
-        domain_collections = [domain.lower() for domain in interested_domains]
-        
-        # Get random articles from each interested domain
-        recommended_articles = []
-        
-        for domain in domain_collections:
-            # Make sure the domain collection exists
-            if domain in db.list_collection_names():
-                # Calculate articles to fetch per domain to distribute evenly
-                articles_per_domain = max(1, 50 // len(domain_collections))
-                
-                # Get random articles from this domain
-                domain_articles = list(db[domain].aggregate([
-                    {"$sample": {"size": articles_per_domain}},
-                    {"$project": {"_id": 0}}  # Exclude MongoDB _id field
-                ]))
-                
-                # Add domain name to each article
-                for article in domain_articles:
-                    article["domain"] = domain
-                
-                recommended_articles.extend(domain_articles)
-        
-        # If we have fewer than 50 articles, grab more from random domains
-        if len(recommended_articles) < 50 and domain_collections:
-            remaining = 50 - len(recommended_articles)
-            additional_articles = []
-            
-            # Cycle through domains again if needed
-            for domain in domain_collections:
-                # Skip if domain collection doesn't exist
-                if domain not in db.list_collection_names():
-                    continue
-                    
-                # Find articles that aren't already in our recommended list
-                article_ids = [a["id"] for a in recommended_articles if a.get("domain") == domain]
-                
-                extra = min(remaining, 5)  # Get up to 5 more per domain
-                extra_articles = list(db[domain].aggregate([
-                    {"$match": {"id": {"$nin": article_ids}}},
-                    {"$sample": {"size": extra}},
-                    {"$project": {"_id": 0}}
-                ]))
-                
-                # Add domain name to each article
-                for article in extra_articles:
-                    article["domain"] = domain
-                    
-                additional_articles.extend(extra_articles)
-                remaining -= len(extra_articles)
-                
-                if remaining <= 0:
-                    break
-            
-            recommended_articles.extend(additional_articles)
-        
-        return jsonify({
-            "recommendedArticles": recommended_articles,
-            "count": len(recommended_articles)
-        }), 200
             
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
