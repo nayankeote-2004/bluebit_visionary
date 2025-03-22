@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tik_tok_wikipidiea/config.dart';
 import 'package:tik_tok_wikipidiea/models/comments_of_post.dart';
 import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
 import 'package:tik_tok_wikipidiea/models/post_content.dart';
@@ -7,6 +9,8 @@ import 'dart:math';
 import 'dart:async';
 import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
 import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ScrollScreen extends StatefulWidget {
   const ScrollScreen({super.key});
@@ -16,33 +20,9 @@ class ScrollScreen extends StatefulWidget {
 }
 
 class _ScrollScreenState extends State<ScrollScreen> {
-  List<Post> posts = [
-    Post(
-      image: 'https://source.unsplash.com/800x1200/',
-      description: "A beautiful sunset over the hills.",
-      source: "Nature Today",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?city',
-      description: "Night view of a busy city street.",
-      source: "Urban Lens",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?ocean',
-      description: "Waves crashing against the rocks.",
-      source: "Marine Explorer",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?forest',
-      description: "A dense green forest with mist.",
-      source: "Wilderness Magazine",
-    ),
-    Post(
-      image: 'https://source.unsplash.com/800x1200/?mountain',
-      description: "A majestic snow-capped mountain.",
-      source: "Mountain Weekly",
-    ),
-  ];
+  List<Post> posts = [];
+  bool isLoading = true;
+  String? userId;
 
   PageController _pageController = PageController();
   bool _isSwipingRight = false;
@@ -62,6 +42,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
   @override
   void initState() {
     super.initState();
+    _loadUserId();
     _startTrackingTime(0);
 
     // Listen for auto-scroll setting changes
@@ -69,6 +50,39 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
     // Initialize auto-scroll if enabled
     _updateAutoScroll();
+  }
+
+  Future<void> _loadUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    userId = prefs.getString('userId');
+    if (userId != null) {
+      await _fetchRecommendedArticles();
+    }
+  }
+
+  Future<void> _fetchRecommendedArticles() async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/$userId/recommended-articles'),
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> articlesJson =
+            json.decode(response.body)['recommendedArticles'];
+        setState(() {
+          posts = articlesJson.map((json) => Post.fromJson(json)).toList();
+          isLoading = false;
+        });
+      } else {
+        throw Exception('Failed to load articles');
+      }
+    } catch (error) {
+      print('Error fetching articles: $error');
+      setState(() {
+        isLoading = false;
+      });
+    }
   }
 
   void _updateAutoScroll() {
@@ -123,10 +137,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
-  void _shufflePosts() {
+  // Replace _shufflePosts with refresh method
+  Future<void> _refreshPosts() async {
     setState(() {
-      posts.shuffle(Random());
+      isLoading = true;
     });
+    await _fetchRecommendedArticles();
   }
 
   // Show comments bottom sheet
@@ -147,10 +163,33 @@ class _ScrollScreenState extends State<ScrollScreen> {
     );
   }
 
+  // Update the build method to handle loading state
   @override
   Widget build(BuildContext context) {
     // Get theme brightness to adapt UI accordingly
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+
+    if (isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: Text("TikTok Wikipedia")),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
+              ),
+              SizedBox(height: 16),
+              Text(
+                "Loading your personalized content...",
+                style: theme.textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -180,12 +219,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          _shufflePosts();
-        },
+        onRefresh: _refreshPosts,
         child: PageView.builder(
           controller: _pageController,
           scrollDirection: Axis.vertical,
+          physics: const BouncingScrollPhysics(), // Smoother scrolling
           itemCount: posts.length,
           onPageChanged: (index) {
             // Record time for previous page and start timer for new page
@@ -193,194 +231,297 @@ class _ScrollScreenState extends State<ScrollScreen> {
             _startTrackingTime(index);
           },
           itemBuilder: (context, index) {
-            return Card(
-              margin: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              elevation: 4,
-              clipBehavior: Clip.antiAlias,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  // Top part - Image (reduced height like Inshorts app)
-                  Container(
-                    height: MediaQuery.of(context).size.height * 0.35,
-                    width: double.infinity,
-                    child: Image.network(
-                      posts[index].image,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color:
-                              isDarkMode ? Colors.grey[800] : Colors.grey[300],
-                          child: Center(
-                            child: Icon(
-                              Icons.broken_image,
-                              size: 50,
-                              color: Theme.of(context).iconTheme.color,
-                            ),
+            final post = posts[index];
+            return _buildEnhancedCard(post, context, isDarkMode, theme);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEnhancedCard(
+    Post post,
+    BuildContext context,
+    bool isDarkMode,
+    ThemeData theme,
+  ) {
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color:
+                isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            // Image section with overlay gradient
+            Stack(
+              children: [
+                // Image
+                Container(
+                  height: MediaQuery.of(context).size.height * 0.35,
+                  width: double.infinity,
+                  child: Image.network(
+                    post.imageUrl,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
+                        child: Center(
+                          child: Icon(
+                            Icons.broken_image,
+                            size: 50,
+                            color: theme.iconTheme.color,
                           ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  // Bottom part - Content with swipe gesture detector
-                  Expanded(
-                    child: GestureDetector(
-                      onHorizontalDragUpdate: (details) {
-                        if (details.primaryDelta! > 10) {
-                          _isSwipingRight = true;
-                        }
-                      },
-                      onHorizontalDragEnd: (details) {
-                        if (_isSwipingRight) {
-                          // Record reading time before navigation
-                          _recordReadingTime();
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder:
-                                  (context) => DetailScreen(post: posts[index]),
-                            ),
-                          ).then((_) {
-                            // Resume tracking when returning from details page
-                            _startTrackingTime(index);
-                            // Reset swipe state to allow repeated swipes
-                            _isSwipingRight = false;
-                          });
-                        } else {
-                          _isSwipingRight = false;
-                        }
-                      },
-                      child: Container(
-                        padding: EdgeInsets.all(16),
-                        color: Theme.of(context).cardColor,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Description text
-                            Expanded(
-                              child: SingleChildScrollView(
-                                child: Text(
-                                  posts[index].description,
-                                  style: Theme.of(context).textTheme.bodyLarge,
-                                ),
-                              ),
-                            ),
-
-                            // Source and actions row
-                            Container(
-                              padding: EdgeInsets.only(top: 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Source name - styled like Inshorts
-                                  Container(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: 6,
-                                      horizontal: 0,
-                                    ),
-                                    child: Text(
-                                      "SOURCE: ${posts[index].source}",
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color:
-                                            isDarkMode
-                                                ? Colors.grey[400]
-                                                : Colors.grey[600],
-                                        letterSpacing: 1.0,
-                                      ),
-                                    ),
-                                  ),
-                                  Divider(
-                                    color: Theme.of(context).dividerColor,
-                                  ),
-                                  // Action buttons
-                                  Row(
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceAround,
-                                    children: [
-                                      IconButton(
-                                        icon: Icon(
-                                          posts[index].isLiked
-                                              ? Icons.favorite
-                                              : Icons.favorite_border,
-                                          color: Colors.red,
-                                          size: 22,
-                                        ),
-                                        onPressed: () {
-                                          setState(() {
-                                            posts[index].isLiked =
-                                                !posts[index].isLiked;
-                                          
-                                          });
-                                        },
-                                      ),
-                                      // CHANGED: Replaced share button with comments button
-                                      IconButton(
-                                        icon: Icon(
-                                          Icons.comment_outlined,
-                                          size: 22,
-                                          color:
-                                              Theme.of(context).iconTheme.color,
-                                        ),
-                                        onPressed: () {
-                                          _showComments(posts[index]);
-                                        },
-                                      ),
-                                      IconButton(
-                                        icon: Icon(
-                                          _bookmarkService.isBookmarked(
-                                                posts[index],
-                                              )
-                                              ? Icons.bookmark
-                                              : Icons.bookmark_border,
-                                          size: 22,
-                                          color:
-                                              Theme.of(context).iconTheme.color,
-                                        ),
-                                        onPressed: () {
-                                          setState(() {
-                                            // Toggle bookmark status using the service
-                                            _bookmarkService.toggleBookmark(
-                                              posts[index],
-                                            );
-                                          });
-
-                                          // Show appropriate message
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                _bookmarkService.isBookmarked(
-                                                      posts[index],
-                                                    )
-                                                    ? "Article bookmarked"
-                                                    : "Bookmark removed",
-                                              ),
-                                              duration: Duration(seconds: 1),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
                         ),
+                      );
+                    },
+                  ),
+                ),
+
+                // Gradient overlay at bottom of image
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: Container(
+                    height: 70,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withOpacity(0.7),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
+
+                // Reading time and domain
+                Positioned(
+                  bottom: 12,
+                  left: 16,
+                  right: 16,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Domain badge
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.primaryColor.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          post.domain.toUpperCase(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+
+                      
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            // Content section
+            Expanded(
+              child: GestureDetector(
+                onHorizontalDragUpdate: (details) {
+                  if (details.primaryDelta! > 10) {
+                    _isSwipingRight = true;
+                  }
+                },
+                onHorizontalDragEnd: (details) {
+                  if (_isSwipingRight) {
+                    // Record reading time before navigation
+                    _recordReadingTime();
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => DetailScreen(post: post),
+                      ),
+                    ).then((_) {
+                      // Resume tracking when returning from details page
+                      _startTrackingTime(_currentIndex);
+                      // Reset swipe state to allow repeated swipes
+                      _isSwipingRight = false;
+                    });
+                  } else {
+                    _isSwipingRight = false;
+                  }
+                },
+                child: Container(
+                  padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title with enhanced styling
+                      Text(
+                        post.title,
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          height: 1.2,
+                        ),
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+
+                      SizedBox(height: 16),
+
+                      // Summary with limited text and smaller font
+                      Expanded(
+                        child: Text(
+                          post.summary,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontSize: 15,
+                            height: 1.5,
+                            color:
+                                isDarkMode
+                                    ? Colors.grey[300]
+                                    : Colors.grey[800],
+                          ),
+                          maxLines: 7,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+
+                      // Swipe hint
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Container(
+                          margin: EdgeInsets.only(top: 8, bottom: 4),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                isDarkMode
+                                    ? Colors.grey[800]
+                                    : Colors.grey[200],
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.swipe_right_alt,
+                                size: 14,
+                                color: theme.primaryColor,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                "Swipe for more",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.primaryColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      Divider(),
+
+                      // Action buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildActionButton(
+                            icon:
+                                post.isLiked
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                            color: Colors.red,
+                            onPressed: () {
+                              setState(() {
+                                post.isLiked = !post.isLiked;
+                              });
+                            },
+                          ),
+                          _buildActionButton(
+                            icon: Icons.comment_outlined,
+                            onPressed: () {
+                              _showComments(post);
+                            },
+                          ),
+                          _buildActionButton(
+                            icon:
+                                _bookmarkService.isBookmarked(post)
+                                    ? Icons.bookmark
+                                    : Icons.bookmark_border,
+                            onPressed: () {
+                              setState(() {
+                                _bookmarkService.toggleBookmark(post);
+                              });
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    _bookmarkService.isBookmarked(post)
+                                        ? "Article bookmarked"
+                                        : "Bookmark removed",
+                                  ),
+                                  duration: Duration(seconds: 1),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            );
-          },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    Color? color,
+    required VoidCallback onPressed,
+  }) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(30),
+        child: Container(
+          padding: EdgeInsets.all(12),
+          child: Icon(icon, size: 24, color: color ?? theme.iconTheme.color),
         ),
       ),
     );
