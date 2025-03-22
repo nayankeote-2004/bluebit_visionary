@@ -315,6 +315,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                           setState(() {
                                             posts[index].isLiked =
                                                 !posts[index].isLiked;
+                                          
                                           });
                                         },
                                       ),
