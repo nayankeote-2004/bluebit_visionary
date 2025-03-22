@@ -8,6 +8,7 @@ import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 
 import '../config.dart';
+import '../screens/UserInterest/userInterest.dart';
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -104,63 +105,28 @@ class _AuthScreenState extends State<AuthScreen>
           print("responseData is   ${responseData}");
 
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString(
-            'user_id',
-            responseData['user']['id'].toString(),
-          );
-          await prefs.setString('username', responseData['user']['username']);
-          await prefs.setString('role', responseData['user']['role']);
-
-          // Print for debugging
-          print('User ID: ${responseData['user']['id'].toString()}');
-
-          final userResponse = await http.get(
-            Uri.parse('$baseUrl/auth/me'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ${responseData['access_token']}',
-            },
-          );
-
-          if (userResponse.statusCode == 200) {}
+          
+          await prefs.setString('username', responseData['user']['fullName']);
+          await prefs.setString('email', responseData['user']['email']);
+          await prefs.setString('mobno', responseData['user']['phone']);
+          await prefs.setString('bio', responseData['user']['bio']);
+          
+          await prefs.setString('userId', responseData['user']['userId']);
+  
+          // Store interested domains as a JSON string
+          await prefs.setString('interestedDomains', 
+            json.encode(responseData['user']['interestedDomains']));
+            
+          // Store interactions as a JSON string
+          await prefs.setString('userInteractions', 
+            json.encode(responseData['user']['interactions']));
+            
         } else {
-          throw Exception(json.decode(response.body)['error']);
-        }
-      } else {
-        final signupEndpoint = '$baseUrl/auth/register';
-
-        final signupData = {
-          'username': _authData['name'],
-          'email': _authData['email'],
-          'mobno': _authData['phone'],
-          'password': _authData['password'],
-        };
-
-        final response = await http.post(
-          Uri.parse(signupEndpoint),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode(signupData),
-        );
-
-        if (response.statusCode == 201) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Registration successful! Please login.'),
-              backgroundColor: Theme.of(context).primaryColor,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          );
-          setState(() {
-            isLogin = true;
-          });
-        } else {
-          print(json.decode(response.body)['error']);
-          throw Exception(json.decode(response.body)['error']);
+          throw json.decode(response.body)['message'];
         }
       }
+          
+      
     } catch (error) {
       showDialog(
         context: context,
@@ -399,10 +365,12 @@ class _AuthScreenState extends State<AuthScreen>
                               height: 46,
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
+
                                 onPressed: () {
+                                  _isLoading ? null : isLogin ? _submit() :
                                   Navigator.of(context).pushReplacement(
                                     MaterialPageRoute(
-                                      builder: (context) => UserInterestPage(),
+                                      builder: (context) => UserInterestPage(authData: _authData),
                                     ),
                                   );
                                 },
