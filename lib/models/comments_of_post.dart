@@ -141,121 +141,50 @@ class _CommentsSheetState extends State<CommentsSheet> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
 
-    return Container(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "Comments",
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Comments",
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                IconButton(
-                  icon: Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-          Divider(),
-
-          // Comments list or loading indicator
-          _isLoading
-              ? Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Center(child: CircularProgressIndicator()),
-              )
-              : Flexible(
-                child:
-                    _comments.isEmpty
-                        ? _buildEmptyCommentsView(theme)
-                        : ListView.builder(
-                          shrinkWrap: true,
-                          padding: EdgeInsets.only(bottom: 8),
-                          itemCount: _comments.length,
-                          itemBuilder: (context, index) {
-                            final comment = _comments[index];
-                            return _buildCommentItem(
-                              comment,
-                              theme,
-                              isDarkMode,
-                            );
-                          },
-                        ),
               ),
-
-          Divider(),
-
-          // Comment input field
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Row(
-              children: [
-                // User avatar (smaller)
-                CircleAvatar(
-                  radius: 16,
-                  backgroundImage: NetworkImage(
-                    "https://i.pravatar.cc/150?img=12",
-                  ),
-                  backgroundColor:
-                      isDarkMode ? Colors.grey[800] : Colors.grey[200],
-                ),
-                SizedBox(width: 12),
-
-                // Text input
-                Expanded(
-                  child: TextField(
-                    controller: _commentController,
-                    focusNode: _focusNode,
-                    decoration: InputDecoration(
-                      hintText: "Add a comment...",
-                      hintStyle: TextStyle(
-                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor:
-                          isDarkMode ? Colors.grey[800] : Colors.grey[200],
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                    ),
-                    style: theme.textTheme.bodyMedium,
-                    textCapitalization: TextCapitalization.sentences,
-                  ),
-                ),
-                SizedBox(width: 8),
-
-                // Send button
-                IconButton(
-                  icon: Icon(Icons.send),
-                  color: theme.primaryColor,
-                  onPressed: _addComment,
-                ),
-              ],
-            ),
+              IconButton(
+                icon: Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        Divider(),
+
+        // Comments list or loading indicator - inside Expanded to allow it to shrink
+        Expanded(
+          child:
+              _isLoading
+                  ? Center(child: CircularProgressIndicator())
+                  : _comments.isEmpty
+                  ? _buildEmptyCommentsView(theme)
+                  : ListView.builder(
+                    padding: EdgeInsets.only(bottom: 8),
+                    itemCount: _comments.length,
+                    itemBuilder: (context, index) {
+                      final comment = _comments[index];
+                      return _buildCommentItem(comment, theme, isDarkMode);
+                    },
+                  ),
+        ),
+
+        // Remove the divider and input field from here as they're in the parent widget now
+      ],
     );
   }
 

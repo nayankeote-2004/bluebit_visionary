@@ -193,35 +193,64 @@ class _ScrollScreenState extends State<ScrollScreen>
     }
   }
 
-  // Read article function (placeholder for future AI reading)
-  void _readArticle(Post post) {
-    HapticFeedback.mediumImpact(); // Add haptic feedback
+  // Add this function at the top of _ScrollScreenState class
+  Future<void> _toggleLike(Post post) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse(
+          '$baseUrl/domains/${post.domain}/articles/${post.id}/like/$userId',
+        ),
+        headers: {'Content-Type': 'application/json'},
+      );
 
-    final snackBar = SnackBar(
-      content: Row(
-        children: [
-          Icon(Icons.headphones, color: Colors.white),
-          SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              "AI Reading coming soon! This will read the article for you.",
-              style: TextStyle(color: Colors.white),
-            ),
+      if (response.statusCode == 200) {
+        setState(() {
+          post.isLiked = !post.isLiked;
+        });
+      } else {
+        throw Exception('Failed to toggle like');
+      }
+    } catch (error) {
+      print('Error toggling like: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update like status'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Add this function in the _ScrollScreenState class
+  Future<void> _shareArticle(Post post) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse('$baseUrl/domains/${post.domain}/articles/${post.id}/share'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'userId': userId}),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Article shared successfully'),
+            backgroundColor: Colors.green,
           ),
-        ],
-      ),
-      duration: Duration(seconds: 3),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      backgroundColor: Colors.blueGrey[800],
-      action: SnackBarAction(
-        label: 'OK',
-        textColor: Colors.white,
-        onPressed: () {},
-      ),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(snackBar);
+        );
+      } else {
+        throw Exception('Failed to share article');
+      }
+    } catch (error) {
+      print('Error sharing article: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to share article'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   // Replace _shufflePosts with refresh method
@@ -232,22 +261,130 @@ class _ScrollScreenState extends State<ScrollScreen>
     await _fetchRecommendedArticles();
   }
 
-  // Show comments bottom sheet
+  // Add this function to the _ScrollScreenState class
+  Future<void> _addComment(Post post, String commentText) async {
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse(
+          '$baseUrl/domains/${post.domain}/articles/${post.id}/comment',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'userId': userId, 'comment': commentText}),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          post.comments.add(commentText);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Comment added successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to add comment');
+      }
+    } catch (error) {
+      print('Error adding comment: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add comment'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // Update the _showComments method to fix the overflow issue
+
   void _showComments(Post post) {
+    final TextEditingController commentController = TextEditingController();
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder:
-          (context) => Container(
-            height: MediaQuery.of(context).size.height * 0.7,
-            decoration: BoxDecoration(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          (context) => Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
             ),
-            child: CommentsSheet(post: post),
+            child: Container(
+              height: MediaQuery.of(context).size.height * 0.7,
+              decoration: BoxDecoration(
+                color: Theme.of(context).scaffoldBackgroundColor,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  // Flexible wrapper for the comments list to allow it to resize
+                  Expanded(child: CommentsSheet(post: post)),
+
+                  // Fixed-height comment input area
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      border: Border(
+                        top: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                          width: 0.5,
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: commentController,
+                            decoration: InputDecoration(
+                              hintText: 'Add a comment...',
+                              isDense: true, // Reduces the overall height
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                            ),
+                            maxLines: 1, // Restrict to single line
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.send),
+                          onPressed: () async {
+                            if (commentController.text.isNotEmpty) {
+                              await _addComment(post, commentController.text);
+                              commentController.clear();
+                              Navigator.pop(context);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
     );
+  }
+
+  // Method to handle text-to-speech functionality
+  void _readArticle(Post post) {
+    // Show a snackbar indicating this feature is in development
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Audio feature coming soon!'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    // You can implement text-to-speech functionality here
+    // using packages like flutter_tts
   }
 
   // Update the build method to handle loading state
@@ -616,17 +753,15 @@ class _ScrollScreenState extends State<ScrollScreen>
                                     ? Icons.favorite
                                     : Icons.favorite_border,
                             color: Colors.red,
-                            onPressed: () {
-                              setState(() {
-                                post.isLiked = !post.isLiked;
-                              });
-                            },
+                            onPressed: () => _toggleLike(post),
                           ),
                           _buildActionButton(
                             icon: Icons.comment_outlined,
-                            onPressed: () {
-                              _showComments(post);
-                            },
+                            onPressed: () => _showComments(post),
+                          ),
+                          _buildActionButton(
+                            icon: Icons.share_outlined,
+                            onPressed: () => _shareArticle(post),
                           ),
                           _buildActionButton(
                             icon:
