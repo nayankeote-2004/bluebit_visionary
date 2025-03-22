@@ -3,6 +3,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
+import 'package:tik_tok_wikipidiea/screens/home/infinite_scroll.dart';
+import 'package:tik_tok_wikipidiea/services/theme_render.dart'; // Import the theme service
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -10,13 +13,16 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   bool isLogin = true;
   bool _obscurePassword = true;
   bool _isLoading = false;
   final _formKey = GlobalKey<FormState>();
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  // Add ThemeService instance
+  final ThemeService _themeService = ThemeService();
 
   final Map<String, String> _authData = {
     'name': '',
@@ -28,6 +34,9 @@ class _AuthScreenState extends State<AuthScreen>
   @override
   void initState() {
     super.initState();
+    // Add observer to detect system theme changes
+    WidgetsBinding.instance.addObserver(this);
+
     _animationController = AnimationController(
       vsync: this,
       duration: Duration(milliseconds: 300),
@@ -36,10 +45,32 @@ class _AuthScreenState extends State<AuthScreen>
       CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
     _animationController.forward();
+
+    // Listen for theme changes from ThemeService
+    _themeService.addListener((themeMode) => _themeListener(themeMode));
+  }
+
+  void _themeListener(ThemeMode themeMode) {
+    // Force rebuild when theme changes
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void didChangePlatformBrightness() {
+    // This is called whenever the system brightness changes
+    if (mounted) {
+      setState(() {});
+    }
+    super.didChangePlatformBrightness();
   }
 
   @override
   void dispose() {
+    // Remove observer and listener
+    WidgetsBinding.instance.removeObserver(this);
+    _themeService.removeListener(_themeListener);
     _animationController.dispose();
     super.dispose();
   }
@@ -163,13 +194,31 @@ class _AuthScreenState extends State<AuthScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final primaryColor = Theme.of(context).primaryColor;
-    final cardColor = isDarkMode ? Color.fromRGBO(30, 30, 35, 1) : Colors.white;
-    final textTheme = Theme.of(context).textTheme;
+    // Get the system brightness
+    final systemBrightness =
+        View.of(context).platformDispatcher.platformBrightness;
+
+    // Get theme mode from ThemeService (will follow system if not explicitly set)
+    final themeMode = _themeService.themeMode;
+
+    // Get theme details from the ThemeData in main.dart
+    final theme = Theme.of(context);
+
+    // Determine if we're in dark mode based on theme
+    final isDarkMode =
+        themeMode == ThemeMode.dark ||
+        (themeMode == ThemeMode.system && systemBrightness == Brightness.dark);
+
+    // Continue with your existing code
+    final primaryColor = theme.primaryColor;
+    final cardColor = theme.cardColor;
+    final textTheme = theme.textTheme;
+    final iconTheme = theme.iconTheme;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Scaffold(
+      // Use scaffold background color from theme
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -178,8 +227,10 @@ class _AuthScreenState extends State<AuthScreen>
             colors:
                 isDarkMode
                     ? [
-                      Color.fromRGBO(20, 20, 25, 1),
-                      Color.fromRGBO(30, 30, 40, 1),
+                      Color(
+                        0xFF101010,
+                      ), // Darker version of dark scaffold background
+                      Color(0xFF1A1A1A), // Slightly lighter dark background
                     ]
                     : [
                       primaryColor.withOpacity(0.05),
@@ -209,7 +260,8 @@ class _AuthScreenState extends State<AuthScreen>
                       side: BorderSide(
                         color:
                             isDarkMode
-                                ? Colors.grey.withOpacity(0.1)
+                                ? theme
+                                    .dividerColor // Use dividerColor from theme
                                 : Colors.transparent,
                         width: 1,
                       ),
@@ -232,7 +284,9 @@ class _AuthScreenState extends State<AuthScreen>
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
-                                  isLogin ? Icons.emoji_emotions_outlined : Icons.app_registration,
+                                  isLogin
+                                      ? Icons.emoji_emotions_outlined
+                                      : Icons.app_registration,
                                   size: 40,
                                   color: primaryColor,
                                 ),
@@ -241,9 +295,8 @@ class _AuthScreenState extends State<AuthScreen>
                             SizedBox(height: 16),
                             Text(
                               isLogin ? 'Welcome Back' : 'Create Account',
-                              style: textTheme.titleLarge?.copyWith(
+                              style: textTheme.displayMedium?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                letterSpacing: 0.3,
                                 fontSize: 22,
                               ),
                             ),
@@ -253,11 +306,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   ? 'Sign in to continue'
                                   : 'Register to start',
                               textAlign: TextAlign.center,
-                              style: textTheme.bodySmall?.copyWith(
-                                color:
-                                    isDarkMode
-                                        ? Colors.grey[400]
-                                        : Colors.grey[600],
+                              style: textTheme.bodyMedium?.copyWith(
                                 fontSize: 13,
                               ),
                             ),
@@ -279,8 +328,7 @@ class _AuthScreenState extends State<AuthScreen>
                                       },
                                       onSaved:
                                           (value) => _authData['name'] = value!,
-                                      isDarkMode: isDarkMode,
-                                      primaryColor: primaryColor,
+                                      theme: theme,
                                     ),
                                   if (!isLogin) SizedBox(height: 12),
                                   _buildTextField(
@@ -296,8 +344,7 @@ class _AuthScreenState extends State<AuthScreen>
                                     },
                                     onSaved:
                                         (value) => _authData['email'] = value!,
-                                    isDarkMode: isDarkMode,
-                                    primaryColor: primaryColor,
+                                    theme: theme,
                                   ),
                                   SizedBox(height: 12),
                                   if (!isLogin)
@@ -319,14 +366,10 @@ class _AuthScreenState extends State<AuthScreen>
                                       onSaved:
                                           (value) =>
                                               _authData['phone'] = value!,
-                                      isDarkMode: isDarkMode,
-                                      primaryColor: primaryColor,
+                                      theme: theme,
                                     ),
                                   if (!isLogin) SizedBox(height: 12),
-                                  _buildPasswordField(
-                                    isDarkMode: isDarkMode,
-                                    primaryColor: primaryColor,
-                                  ),
+                                  _buildPasswordField(theme: theme),
                                 ],
                               ),
                             ),
@@ -335,7 +378,14 @@ class _AuthScreenState extends State<AuthScreen>
                               width: double.infinity,
                               height: 46,
                               child: ElevatedButton(
-                                onPressed: _isLoading ? null : _submit,
+                                // onPressed: _isLoading ? null : _submit,
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => BottomNavBar(),
+                                    ),
+                                  );
+                                },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryColor,
                                   foregroundColor: Colors.white,
@@ -377,11 +427,7 @@ class _AuthScreenState extends State<AuthScreen>
                                   isLogin
                                       ? 'Don\'t have an account?'
                                       : 'Already have an account?',
-                                  style: TextStyle(
-                                    color:
-                                        isDarkMode
-                                            ? Colors.grey[400]
-                                            : Colors.grey[600],
+                                  style: textTheme.bodyMedium?.copyWith(
                                     fontSize: 13,
                                   ),
                                 ),
@@ -424,13 +470,15 @@ class _AuthScreenState extends State<AuthScreen>
   Widget _buildTextField({
     required String label,
     required IconData icon,
-    required bool isDarkMode,
-    required Color primaryColor,
+    required ThemeData theme,
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
     String? Function(String?)? validator,
     void Function(String?)? onSaved,
   }) {
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final primaryColor = theme.primaryColor;
+
     return TextFormField(
       decoration: InputDecoration(
         labelText: label,
@@ -439,14 +487,14 @@ class _AuthScreenState extends State<AuthScreen>
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
             width: 1,
-            color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+            color: theme.dividerColor, // Use dividerColor from theme
           ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
             width: 1,
-            color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+            color: theme.dividerColor, // Use dividerColor from theme
           ),
         ),
         focusedBorder: OutlineInputBorder(
@@ -455,16 +503,20 @@ class _AuthScreenState extends State<AuthScreen>
         ),
         filled: true,
         fillColor:
-            isDarkMode ? Colors.grey[800]!.withOpacity(0.5) : Colors.grey[50]!,
+            isDarkMode
+                ? Color(
+                  0xFF1E1E1E,
+                ) // Slightly lighter than card color in dark mode
+                : Colors.grey[50],
         labelStyle: TextStyle(
-          color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
+          color: theme.textTheme.bodyMedium?.color, // Use text color from theme
           fontSize: 13,
         ),
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         isDense: true,
       ),
       style: TextStyle(
-        color: isDarkMode ? Colors.white : Colors.black87,
+        color: theme.textTheme.bodyLarge?.color, // Use text color from theme
         fontSize: 14,
       ),
       keyboardType: keyboardType,
@@ -474,10 +526,10 @@ class _AuthScreenState extends State<AuthScreen>
     );
   }
 
-  Widget _buildPasswordField({
-    required bool isDarkMode,
-    required Color primaryColor,
-  }) {
+  Widget _buildPasswordField({required ThemeData theme}) {
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final primaryColor = theme.primaryColor;
+
     return TextFormField(
       decoration: InputDecoration(
         labelText: 'Password',
@@ -485,7 +537,7 @@ class _AuthScreenState extends State<AuthScreen>
         suffixIcon: IconButton(
           icon: Icon(
             _obscurePassword ? Icons.visibility_off : Icons.visibility,
-            color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+            color: theme.iconTheme.color, // Use icon color from theme
             size: 18,
           ),
           onPressed: () {
@@ -501,14 +553,14 @@ class _AuthScreenState extends State<AuthScreen>
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
             width: 1,
-            color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+            color: theme.dividerColor, // Use dividerColor from theme
           ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: BorderSide(
             width: 1,
-            color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
+            color: theme.dividerColor, // Use dividerColor from theme
           ),
         ),
         focusedBorder: OutlineInputBorder(
@@ -517,16 +569,20 @@ class _AuthScreenState extends State<AuthScreen>
         ),
         filled: true,
         fillColor:
-            isDarkMode ? Colors.grey[800]!.withOpacity(0.5) : Colors.grey[50]!,
+            isDarkMode
+                ? Color(
+                  0xFF1E1E1E,
+                ) // Slightly lighter than card color in dark mode
+                : Colors.grey[50],
         labelStyle: TextStyle(
-          color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
+          color: theme.textTheme.bodyMedium?.color, // Use text color from theme
           fontSize: 13,
         ),
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         isDense: true,
       ),
       style: TextStyle(
-        color: isDarkMode ? Colors.white : Colors.black87,
+        color: theme.textTheme.bodyLarge?.color, // Use text color from theme
         fontSize: 14,
       ),
       obscureText: _obscurePassword,

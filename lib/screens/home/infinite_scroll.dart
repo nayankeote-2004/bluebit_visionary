@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
 import 'package:tik_tok_wikipidiea/models/post_content.dart';
 import 'dart:math';
 import 'dart:async';
-
-import 'package:tik_tok_wikipidiea/screens/post_details.dart';
+import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
 
 class ScrollScreen extends StatefulWidget {
   @override
@@ -43,6 +43,10 @@ class _ScrollScreenState extends State<ScrollScreen> {
   PageController _pageController = PageController();
   bool _isSwipingRight = false;
 
+  // Auto-scroll settings
+  final AutoScrollService _autoScrollService = AutoScrollService();
+  Timer? _autoScrollTimer;
+
   // Track reading time
   int _currentIndex = 0;
   DateTime? _pageViewStartTime;
@@ -52,6 +56,42 @@ class _ScrollScreenState extends State<ScrollScreen> {
   void initState() {
     super.initState();
     _startTrackingTime(0);
+
+    // Listen for auto-scroll setting changes
+    _autoScrollService.addListener(_updateAutoScroll);
+
+    // Initialize auto-scroll if enabled
+    _updateAutoScroll();
+  }
+
+  void _updateAutoScroll() {
+    // Cancel any existing timer
+    _autoScrollTimer?.cancel();
+
+    // If auto-scroll is enabled, start the timer
+    if (_autoScrollService.enabled) {
+      _startAutoScroll();
+    }
+  }
+
+  void _startAutoScroll() {
+    // Create a periodic timer with the configured interval
+    _autoScrollTimer = Timer.periodic(
+      Duration(seconds: _autoScrollService.intervalSeconds),
+      (_) {
+        // Only scroll if we have a valid page controller and we're not at the end
+        if (_pageController.hasClients && _currentIndex < posts.length - 1) {
+          // Record reading time for current page
+          _recordReadingTime();
+
+          // Animate to the next page
+          _pageController.nextPage(
+            duration: Duration(milliseconds: 500),
+            curve: Curves.easeInOut,
+          );
+        }
+      },
+    );
   }
 
   void _startTrackingTime(int index) {
@@ -96,6 +136,23 @@ class _ScrollScreenState extends State<ScrollScreen> {
           style: Theme.of(context).appBarTheme.titleTextStyle,
         ),
         centerTitle: true,
+        // Show auto-scroll indicator when enabled
+        actions: [
+          if (_autoScrollService.enabled)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                children: [
+                  Icon(Icons.av_timer, size: 18),
+                  SizedBox(width: 4),
+                  Text(
+                    "${_autoScrollService.intervalSeconds}s",
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -300,6 +357,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
   void dispose() {
     // Record the final reading time when widget is disposed
     _recordReadingTime();
+
+    // Clean up auto-scroll timer and listeners
+    _autoScrollTimer?.cancel();
+    _autoScrollService.removeListener(_updateAutoScroll);
+
     super.dispose();
   }
 }

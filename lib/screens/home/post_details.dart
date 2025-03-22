@@ -9,6 +9,9 @@ class DetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Get theme brightness to adapt UI accordingly
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
@@ -19,7 +22,10 @@ class DetailScreen extends StatelessWidget {
               expandedHeight: 250.0,
               floating: false,
               pinned: true,
-              backgroundColor: Colors.black.withValues(alpha: 10),
+              backgroundColor:
+                  isDarkMode
+                      ? Colors.black.withOpacity(0.7)
+                      : Colors.white.withOpacity(0.7),
               flexibleSpace: FlexibleSpaceBar(
                 title: Text(
                   "SOURCE: ${post.source}",
@@ -27,6 +33,7 @@ class DetailScreen extends StatelessWidget {
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.0,
+                    color: isDarkMode ? Colors.white : Colors.black87,
                   ),
                 ),
                 background: Hero(
@@ -39,12 +46,15 @@ class DetailScreen extends StatelessWidget {
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
-                            color: Colors.grey[800],
+                            color:
+                                isDarkMode
+                                    ? Colors.grey[800]
+                                    : Colors.grey[300],
                             child: Center(
                               child: Icon(
                                 Icons.broken_image,
                                 size: 50,
-                                color: Colors.white70,
+                                color: Theme.of(context).iconTheme.color,
                               ),
                             ),
                           );
@@ -58,7 +68,9 @@ class DetailScreen extends StatelessWidget {
                             end: Alignment.bottomCenter,
                             colors: [
                               Colors.transparent,
-                              Colors.black.withOpacity(0.7),
+                              isDarkMode
+                                  ? Colors.black.withOpacity(0.7)
+                                  : Colors.black.withOpacity(0.4),
                             ],
                           ),
                         ),
@@ -71,10 +83,16 @@ class DetailScreen extends StatelessWidget {
                 icon: Container(
                   padding: EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.black38,
+                    color:
+                        isDarkMode
+                            ? Colors.black38
+                            : Colors.white.withOpacity(0.7),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.arrow_back_ios, color: Colors.white),
+                  child: Icon(
+                    Icons.arrow_back,
+                    color: isDarkMode ? Colors.white : Colors.black87,
+                  ),
                 ),
                 onPressed: () => Navigator.pop(context),
               ),
@@ -83,10 +101,16 @@ class DetailScreen extends StatelessWidget {
                   icon: Container(
                     padding: EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.black38,
+                      color:
+                          isDarkMode
+                              ? Colors.black38
+                              : Colors.white.withOpacity(0.7),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.share, color: Colors.white),
+                    child: Icon(
+                      Icons.share,
+                      color: isDarkMode ? Colors.white : Colors.black87,
+                    ),
                   ),
                   onPressed: () {
                     Clipboard.setData(ClipboardData(text: post.description));
@@ -109,12 +133,8 @@ class DetailScreen extends StatelessWidget {
                     // Title / First line as heading
                     Text(
                       post.description.split('.').first + ".",
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        height: 1.3,
-                      ),
+                      style: Theme.of(context).textTheme.displayMedium
+                          ?.copyWith(fontSize: 24, height: 1.3),
                     ),
                     SizedBox(height: 16),
 
@@ -145,9 +165,12 @@ class DetailScreen extends StatelessWidget {
                       padding: EdgeInsets.symmetric(vertical: 10),
                       decoration: BoxDecoration(
                         border: Border(
-                          top: BorderSide(color: Colors.grey[800]!, width: 1),
+                          top: BorderSide(
+                            color: Theme.of(context).dividerColor,
+                            width: 1,
+                          ),
                           bottom: BorderSide(
-                            color: Colors.grey[800]!,
+                            color: Theme.of(context).dividerColor,
                             width: 1,
                           ),
                         ),
@@ -158,14 +181,20 @@ class DetailScreen extends StatelessWidget {
                             height: 40,
                             width: 40,
                             decoration: BoxDecoration(
-                              color: Colors.grey[700],
+                              color:
+                                  isDarkMode
+                                      ? Colors.grey[700]
+                                      : Colors.grey[300],
                               shape: BoxShape.circle,
                             ),
                             child: Center(
                               child: Text(
                                 post.source.substring(0, 1),
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -179,7 +208,10 @@ class DetailScreen extends StatelessWidget {
                                 post.source,
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
                                 ),
                               ),
                               SizedBox(height: 4),
@@ -187,7 +219,10 @@ class DetailScreen extends StatelessWidget {
                                 "Published on ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}",
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[400],
+                                  color:
+                                      isDarkMode
+                                          ? Colors.grey[400]
+                                          : Colors.grey[600],
                                 ),
                               ),
                             ],
@@ -203,6 +238,7 @@ class DetailScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
                         _buildActionButton(
+                          context: context,
                           icon: Icons.favorite_border,
                           label: "Like",
                           onTap: () {
@@ -212,6 +248,7 @@ class DetailScreen extends StatelessWidget {
                           },
                         ),
                         _buildActionButton(
+                          context: context,
                           icon: Icons.bookmark_border,
                           label: "Save",
                           onTap: () {
@@ -221,6 +258,7 @@ class DetailScreen extends StatelessWidget {
                           },
                         ),
                         _buildActionButton(
+                          context: context,
                           icon: Icons.share,
                           label: "Share",
                           onTap: () {
@@ -249,6 +287,7 @@ class DetailScreen extends StatelessWidget {
   }
 
   Widget _buildActionButton({
+    required BuildContext context,
     required IconData icon,
     required String label,
     required VoidCallback onTap,
@@ -257,9 +296,15 @@ class DetailScreen extends StatelessWidget {
       onTap: onTap,
       child: Column(
         children: [
-          Icon(icon, color: Colors.white70),
+          Icon(icon, color: Theme.of(context).iconTheme.color),
           SizedBox(height: 8),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.white70)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).iconTheme.color,
+            ),
+          ),
         ],
       ),
     );
