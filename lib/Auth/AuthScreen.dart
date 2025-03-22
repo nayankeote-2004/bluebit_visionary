@@ -366,13 +366,24 @@ class _AuthScreenState extends State<AuthScreen>
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
 
-                                onPressed: () {
-                                  _isLoading ? null : isLogin ? _submit() :
-                                  Navigator.of(context).pushReplacement(
-                                    MaterialPageRoute(
-                                      builder: (context) => UserInterestPage(authData: _authData),
-                                    ),
-                                  );
+                                onPressed: () async {
+                                  if (_isLoading) return;
+                                  
+                                  if (_formKey.currentState!.validate()) {
+                                    _formKey.currentState!.save(); // This saves the form data to _authData
+                                    
+                                    if (isLogin) {
+                                      await _submit();
+                                    } else {
+                                      Navigator.of(context).pushReplacement(
+                                        MaterialPageRoute(
+                                          builder: (context) => UserInterestPage(
+                                            authData: Map<String, String>.from(_authData), // Create a new map from _authData
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  }
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryColor,
