@@ -166,7 +166,42 @@ class _ProfilePageState extends State<ProfilePage> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Profile')),
+      appBar: AppBar(
+        title: Text('Profile'),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () {
+              // Show confirmation dialog
+              showDialog(
+                context: context,
+                builder:
+                    (context) => AlertDialog(
+                      title: Text('Logout'),
+                      content: Text('Are you sure you want to logout?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: Text('Cancel'),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            // Implement logout functionality here
+                            // For example: AuthService().logout();
+                            Navigator.of(context).pop();
+                            // Navigate to login screen
+                            // Navigator.of(context).pushReplacementNamed('/login');
+                          },
+                          child: Text('Logout'),
+                        ),
+                      ],
+                    ),
+              );
+            },
+          ),
+        ],
+      ),
       body: ListView(
         controller: _scrollController,
         padding: EdgeInsets.all(16),
