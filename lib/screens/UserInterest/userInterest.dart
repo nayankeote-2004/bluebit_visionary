@@ -211,12 +211,12 @@ class _UserInterestPageState extends State<UserInterestPage>
                               final signupEndpoint = '$baseUrl/signup';
                               print(widget.authData);
                               final signupData = {
-                                'fullname': widget.authData['name'],
+                                'fullName': widget.authData['name'],
                                 'email': widget.authData['email'],
                                 'phone': widget.authData['phone'],
                                 'password': widget.authData['password'],
                                 'bio': widget.authData['bio'],
-                                'interestedDomain': interestList,
+                                'interestedDomains': interestList
                               };
 
                               final response = await http.post(

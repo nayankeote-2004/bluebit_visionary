@@ -126,6 +126,9 @@ class _AuthScreenState extends State<AuthScreen>
             'userInteractions',
             json.encode(responseData['user']['interactions']),
           );
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => BottomNavBar()),
+          );
         } else {
           throw json.decode(response.body)['message'];
         }
@@ -370,19 +373,31 @@ class _AuthScreenState extends State<AuthScreen>
                               height: 46,
                               child: ElevatedButton(
                                 // onPressed: _isLoading ? null : _submit,
-                                onPressed: () {
-                                  _isLoading
-                                      ? null
-                                      : isLogin
-                                      ? _submit()
-                                      : Navigator.of(context).pushReplacement(
+                                onPressed: () async {
+                                  if (_isLoading) return;
+
+                                  if (_formKey.currentState!.validate()) {
+                                    _formKey.currentState!
+                                        .save(); // This saves the form data to _authData
+
+                                    if (isLogin) {
+                                      await _submit();
+                                    } else {
+                                      Navigator.of(context).pushReplacement(
                                         MaterialPageRoute(
                                           builder:
                                               (context) => UserInterestPage(
-                                                authData: _authData,
+                                                authData: Map<
+                                                  String,
+                                                  String
+                                                >.from(
+                                                  _authData,
+                                                ), // Create a new map from _authData
                                               ),
                                         ),
                                       );
+                                    }
+                                  }
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: primaryColor,
