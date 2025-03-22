@@ -54,21 +54,25 @@ class _BookmarksPageState extends State<BookmarksPage> {
       appBar: AppBar(
         title: Text('Your Bookmarks'),
         elevation: theme.appBarTheme.elevation,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         actions: [
           if (bookmarkedPosts.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 16.0),
-              child: Center(
-                child: Text(
-                  '${bookmarkedPosts.length} saved',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: isDarkMode ? Colors.white70 : Colors.black54,
-                  ),
-                ),
-              ),
+        Padding(
+          padding: const EdgeInsets.only(right: 16.0),
+          child: Center(
+            child: Text(
+          '${bookmarkedPosts.length} saved',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: isDarkMode ? Colors.white70 : Colors.black54,
+          ),
             ),
+          ),
+        ),
         ],
       ),
       body:
