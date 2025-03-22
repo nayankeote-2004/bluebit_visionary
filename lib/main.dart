@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:tik_tok_wikipidiea/Auth/AuthScreen.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 import 'package:tik_tok_wikipidiea/screens/infinite_scroll.dart';
 
@@ -80,7 +81,7 @@ class MyApp extends StatelessWidget {
         dividerColor: Colors.grey[300],
       ),
 
-      home: BottomNavBar(),
+      home: AuthScreen(),
     );
   }
 }
