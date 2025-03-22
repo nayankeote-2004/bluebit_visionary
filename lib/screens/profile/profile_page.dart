@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tik_tok_wikipidiea/Auth/AuthScreen.dart';
+import 'dart:convert';
 import 'package:tik_tok_wikipidiea/screens/profile/book_mark.dart';
 import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
@@ -13,10 +16,24 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // User data (would typically come from a user service/model)
-  String userName = "John Doe";
-  String userBio = "Flutter Developer | Tech Enthusiast";
+  // User data that will be loaded from SharedPreferences
+  String userName = "Loading...";
+  String userBio = "Loading...";
   String avatarUrl = "https://via.placeholder.com/150";
+  String userId = "";
+  String userEmail = "";
+
+  // Add list of interested domains
+  List<dynamic> interestedDomains = [];
+
+  // Add user interactions tracking
+  Map<String, dynamic> userInteractions = {
+    'likedArticles': [],
+    'commentedArticles': [],
+    'sharedArticles': [],
+  };
+
+  bool isLoading = true;
 
   // Theme toggle
   bool _isDarkMode = false;
@@ -51,6 +68,73 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // Listen for theme changes from other parts of the app
     _themeService.addListener(_onThemeChanged);
+
+    // Load user data from SharedPreferences
+    _loadUserData();
+  }
+
+  // Load user data from SharedPreferences
+  Future<void> _loadUserData() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Get basic user info
+      final name = prefs.getString('username');
+      final email = prefs.getString('email');
+      final bio = prefs.getString('bio');
+      final id = prefs.getString('userId');
+
+      // Get interested domains
+      final domainsString = prefs.getString('interestedDomains');
+      List<dynamic> domains = [];
+
+      if (domainsString != null && domainsString.isNotEmpty) {
+        // Parse the JSON string into a List
+        domains = json.decode(domainsString);
+        print("domains are ${domains}");
+      }
+
+      // Get user interactions data
+      final interactionsString = prefs.getString('userInteractions');
+      Map<String, dynamic> interactions = {
+        'likedArticles': [],
+        'commentedArticles': [],
+        'sharedArticles': [],
+      };
+
+      if (interactionsString != null && interactionsString.isNotEmpty) {
+        try {
+          interactions = json.decode(interactionsString);
+          print("Loaded interactions: $interactions");
+        } catch (e) {
+          print("Error parsing interactions: $e");
+        }
+      }
+
+      // Update the state with loaded data
+      if (mounted) {
+        setState(() {
+          userName = name ?? "No Name";
+          userEmail = email ?? "No Email";
+          userBio = bio ?? "No Bio";
+          userId = id ?? "";
+          interestedDomains = domains;
+          userInteractions = interactions;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 
   // Add this method to update UI when theme changes from elsewhere
@@ -179,6 +263,11 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+
+    // Get interaction counts
+    final likedCount = userInteractions['likedArticles']?.length ?? 0;
+    final commentedCount = userInteractions['commentedArticles']?.length ?? 0;
+    final sharedCount = userInteractions['sharedArticles']?.length ?? 0;
 
     return Scaffold(
       appBar: AppBar(
@@ -484,7 +573,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                             );
 
                                             // Navigate to login screen
-                                            // Navigator.of(context).pushReplacementNamed('/login');
+                                            Navigator.of(context).pushReplacement(
+                                              MaterialPageRoute(
+                                                builder: (context) => AuthScreen(),
+                                              ),
+                                            );
                                           },
                                         );
                                       },
@@ -527,214 +620,409 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         ],
       ),
-      body: ListView(
-        controller: _scrollController,
-        padding: EdgeInsets.all(16),
-        children: [
-          // Profile Card
-          Card(
-            elevation: 4,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Stack(
-                    alignment: Alignment.bottomRight,
-                    children: [
-                      CircleAvatar(
-                        radius: 60,
-                        backgroundImage: NetworkImage(avatarUrl),
+      body:
+          isLoading
+              ? Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                onRefresh: _loadUserData,
+                child: ListView(
+                  controller: _scrollController,
+                  padding: EdgeInsets.all(16),
+                  children: [
+                    // Profile Card
+                    Card(
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: theme.primaryColor,
-                          shape: BoxShape.circle,
-                        ),
-                        child: IconButton(
-                          icon: Icon(Icons.edit, color: Colors.white),
-                          onPressed: _openAvatarCustomizationDialog,
-                          tooltip: 'Customize avatar',
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    userName,
-                    style: theme.textTheme.displayMedium?.copyWith(
-                      fontSize: 24,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    userBio,
-                    style: theme.textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
-                  ),
-                  SizedBox(height: 16),
-                ],
-              ),
-            ),
-          ),
-
-          SizedBox(height: 24),
-
-          // Settings Card
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Settings',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-
-                  // Auto Scroll Switch
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Auto Scroll', style: theme.textTheme.bodyMedium),
-                      Switch(
-                        value: _autoScrollEnabled,
-                        onChanged: _toggleAutoScroll,
-                        activeColor: theme.primaryColor,
-                      ),
-                    ],
-                  ),
-
-                  // Auto Scroll Interval Dropdown (visible only when auto scroll is enabled)
-                  if (_autoScrollEnabled) ...[
-                    SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Scroll Interval',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        DropdownButton<int>(
-                          value: _scrollInterval,
-                          items:
-                              _scrollIntervals.map((int interval) {
-                                return DropdownMenuItem<int>(
-                                  value: interval,
-                                  child: Text('$interval seconds'),
-                                );
-                              }).toList(),
-                          onChanged: _changeScrollInterval,
-                          dropdownColor: theme.cardColor,
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ],
-                    ),
-                  ],
-
-                  Divider(height: 32),
-
-                  // Theme Toggle
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Dark Mode', style: theme.textTheme.bodyMedium),
-                      Switch(
-                        value: _isDarkMode,
-                        onChanged: (value) => _toggleTheme(),
-                        activeColor: theme.primaryColor,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          SizedBox(height: 24),
-
-          // Stats Card
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Activity Stats',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-
-                  // Articles Read - regular stat
-                  _buildStatRow('Articles Read', '42', theme),
-                  SizedBox(height: 12),
-
-                  // Bookmarks - clickable stat that navigates to bookmarks page
-                  InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => BookmarksPage(),
-                        ),
-                      );
-                    },
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 4),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'Bookmarks',
-                                style: theme.textTheme.bodyMedium,
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Stack(
+                              alignment: Alignment.bottomRight,
+                              children: [
+                                CircleAvatar(
+                                  radius: 60,
+                                  backgroundImage: NetworkImage(avatarUrl),
+                                ),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: theme.primaryColor,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: IconButton(
+                                    icon: Icon(Icons.edit, color: Colors.white),
+                                    onPressed: _openAvatarCustomizationDialog,
+                                    tooltip: 'Customize avatar',
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              userName,
+                              style: theme.textTheme.displayMedium?.copyWith(
+                                fontSize: 24,
                               ),
-                              SizedBox(width: 4),
-                              Icon(
-                                Icons.arrow_forward_ios,
-                                size: 12,
-                                color: theme.iconTheme.color,
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              userEmail,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.textTheme.bodySmall?.color,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              userBio,
+                              style: theme.textTheme.bodyMedium,
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: 16),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Interaction Stats Card - Add this new card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.analytics_outlined,
+                                  color: theme.primaryColor,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Your Activity',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildStatColumn(
+                                  context,
+                                  Icons.favorite,
+                                  likedCount.toString(),
+                                  'Liked',
+                                  theme.primaryColor,
+                                ),
+                                _buildStatColumn(
+                                  context,
+                                  Icons.comment,
+                                  commentedCount.toString(),
+                                  'Comments',
+                                  Colors.amber,
+                                ),
+                                _buildStatColumn(
+                                  context,
+                                  Icons.share,
+                                  sharedCount.toString(),
+                                  'Shared',
+                                  Colors.green,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Interested Domains Card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.interests,
+                                      color: theme.primaryColor,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Interested Domains',
+                                      style: theme.textTheme.bodyLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.edit, size: 18),
+                                  onPressed: () {
+                                    // TODO: Implement edit interests functionality
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Edit interests (to be implemented)',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  tooltip: 'Edit interests',
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 16),
+                            interestedDomains.isEmpty
+                                ? Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16),
+                                    child: Text(
+                                      'No interests selected yet',
+                                      style: TextStyle(
+                                        color: theme.textTheme.bodySmall?.color,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                : Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children:
+                                      interestedDomains.map((domain) {
+                                        return _buildInterestChip(
+                                          domain,
+                                          theme,
+                                        );
+                                      }).toList(),
+                                ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Settings Card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Settings',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 16),
+
+                            // Auto Scroll Switch
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Auto Scroll',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                                Switch(
+                                  value: _autoScrollEnabled,
+                                  onChanged: _toggleAutoScroll,
+                                  activeColor: theme.primaryColor,
+                                ),
+                              ],
+                            ),
+
+                            // Auto Scroll Interval Dropdown (visible only when auto scroll is enabled)
+                            if (_autoScrollEnabled) ...[
+                              SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    'Scroll Interval',
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                  DropdownButton<int>(
+                                    value: _scrollInterval,
+                                    items:
+                                        _scrollIntervals.map((int interval) {
+                                          return DropdownMenuItem<int>(
+                                            value: interval,
+                                            child: Text('$interval seconds'),
+                                          );
+                                        }).toList(),
+                                    onChanged: _changeScrollInterval,
+                                    dropdownColor: theme.cardColor,
+                                    style: theme.textTheme.bodyMedium,
+                                  ),
+                                ],
                               ),
                             ],
-                          ),
-                          Text(
-                            '15', // This would normally come from a real count
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: theme.primaryColor,
+
+                            Divider(height: 32),
+
+                            // Theme Toggle
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Dark Mode',
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                                Switch(
+                                  value: _isDarkMode,
+                                  onChanged: (value) => _toggleTheme(),
+                                  activeColor: theme.primaryColor,
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: 12),
 
-                  // Comments - regular stat
-                  _buildStatRow('Comments', '7', theme),
-                ],
+                    SizedBox(height: 24),
+
+                    // Stats Card
+                    Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Activity Stats',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 16),
+
+                            // Articles Read - regular stat
+                            _buildStatRow('Articles Read', '42', theme),
+                            SizedBox(height: 12),
+
+                            // Bookmarks - clickable stat that navigates to bookmarks page
+                            InkWell(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => BookmarksPage(),
+                                  ),
+                                );
+                              },
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          'Bookmarks',
+                                          style: theme.textTheme.bodyMedium,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Icon(
+                                          Icons.arrow_forward_ios,
+                                          size: 12,
+                                          color: theme.iconTheme.color,
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      '15', // This would normally come from a real count
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: theme.primaryColor,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: 12),
+
+                            // Comments - regular stat
+                            _buildStatRow('Comments', '7', theme),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
+    );
+  }
+
+  Widget _buildInterestChip(String domain, ThemeData theme) {
+    // Map domain names to appropriate icons
+    final Map<String, IconData> domainIcons = {
+      'Nature': Icons.terrain,
+      'Education': Icons.school,
+      'Entertainment': Icons.movie,
+      'Technology': Icons.computer,
+      'Science': Icons.science,
+      'Political': Icons.account_balance,
+      'Lifestyle': Icons.spa,
+      'Social': Icons.people,
+      'Space': Icons.rocket,
+      'Food': Icons.restaurant,
+    };
+
+    final icon = domainIcons[domain] ?? Icons.interests;
+
+    return Chip(
+      avatar: Icon(icon, size: 16, color: theme.primaryColor),
+      label: Text(domain),
+      backgroundColor: theme.primaryColor.withOpacity(0.1),
+      side: BorderSide(color: theme.primaryColor.withOpacity(0.5), width: 1),
+      labelStyle: TextStyle(
+        color: theme.primaryColor,
+        fontWeight: FontWeight.w500,
       ),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
   }
 
@@ -750,6 +1038,38 @@ class _ProfilePageState extends State<ProfilePage> {
             color: theme.primaryColor,
           ),
         ),
+      ],
+    );
+  }
+
+  // Helper method to build a stat column
+  Widget _buildStatColumn(
+    BuildContext context,
+    IconData icon,
+    String count,
+    String label,
+    Color iconColor,
+  ) {
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(icon, color: iconColor, size: 24),
+        ),
+        SizedBox(height: 8),
+        Text(
+          count,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(label, style: theme.textTheme.bodySmall),
       ],
     );
   }

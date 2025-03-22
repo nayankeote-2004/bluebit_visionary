@@ -121,11 +121,15 @@ class _AuthScreenState extends State<AuthScreen>
             json.encode(responseData['user']['interestedDomains']),
           );
 
+          // In UserInterestPage after saving to SharedPreferences:
+          print('Saved interests to SharedPreferences: ${prefs.getString('interestedDomains')}');
+
           // Store interactions as a JSON string
           await prefs.setString(
             'userInteractions',
             json.encode(responseData['user']['interactions']),
           );
+          
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => BottomNavBar()),
           );
