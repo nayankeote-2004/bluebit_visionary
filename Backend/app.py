@@ -317,7 +317,6 @@ def login():
 @app.route('/populate-domains', methods=['POST'])
 def populate_domains():
     domains = [ 
-        "Science", "Political", "Lifestyle", "Social", 
         "Space", "Food"
     ]
     
