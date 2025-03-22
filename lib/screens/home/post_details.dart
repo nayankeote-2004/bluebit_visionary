@@ -15,12 +15,35 @@ class _DetailScreenState extends State<DetailScreen> {
   // List of article sections
   List<ArticleSection> sections = [];
   bool _isLoading = true;
+  // Controller to track scroll position
+  final ScrollController _scrollController = ScrollController();
+  bool _showTitleInAppBar = false;
+  final double _appBarTitleThreshold = 250.0;
 
   @override
   void initState() {
     super.initState();
     // Load article sections from API
     _loadArticleSections();
+
+    // Add scroll listener to show/hide title in app bar
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    final showTitle = _scrollController.offset > _appBarTitleThreshold;
+    if (showTitle != _showTitleInAppBar) {
+      setState(() {
+        _showTitleInAppBar = showTitle;
+      });
+    }
   }
 
   // This method would fetch data from your API
@@ -94,12 +117,17 @@ class _DetailScreenState extends State<DetailScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
 
+    // Get article title for app bar
+    final articleTitle = widget.post.description.split('.').first + ".";
+
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: CustomScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
           slivers: [
-            // App Bar with Image (keeping existing code)
+            // App Bar with Image (modified to show/hide title while scrolling)
             SliverAppBar(
               expandedHeight: 250.0,
               floating: false,
@@ -108,16 +136,21 @@ class _DetailScreenState extends State<DetailScreen> {
                   isDarkMode
                       ? Colors.black.withOpacity(0.7)
                       : Colors.white.withOpacity(0.7),
+              title:
+                  _showTitleInAppBar
+                      ? Text(
+                        articleTitle,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                      : null,
               flexibleSpace: FlexibleSpaceBar(
-                title: Text(
-                  "SOURCE: ${widget.post.source}",
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.0,
-                    color: isDarkMode ? Colors.white : Colors.black87,
-                  ),
-                ),
+                // Removed source text from here
                 background: Hero(
                   tag: widget.post.image,
                   child: Stack(
@@ -216,7 +249,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   children: [
                     // Title / First line as heading
                     Text(
-                      widget.post.description.split('.').first + ".",
+                      articleTitle,
                       style: Theme.of(context).textTheme.displayMedium
                           ?.copyWith(fontSize: 24, height: 1.3),
                     ),
