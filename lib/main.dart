@@ -1,19 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
-import 'package:tik_tok_wikipidiea/screens/infinite_scroll.dart';
+import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 
-void main() {
+void main() async {
+  // Ensure Flutter is initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize theme service
+  final themeService = ThemeService();
+  await themeService.init();
+
   runApp(MyApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class MyApp extends StatefulWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final ThemeService _themeService = ThemeService();
+  ThemeMode _themeMode = ThemeMode.light;
+
+  @override
+  void initState() {
+    super.initState();
+    // Get initial theme mode
+    _themeMode = _themeService.themeMode;
+
+    // Listen for theme changes
+    _themeService.addListener(_updateTheme);
+  }
+
+  void _updateTheme(ThemeMode mode) {
+    setState(() {
+      _themeMode = mode;
+    });
+  }
+
+  @override
+  void dispose() {
+    // Remove listener
+    _themeService.removeListener(_updateTheme);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system, // Use system settings
+      themeMode: _themeMode, // Use theme mode from service
       // Dark theme
       darkTheme: ThemeData(
         brightness: Brightness.dark,
