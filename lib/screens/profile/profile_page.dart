@@ -5,8 +5,15 @@ import 'package:tik_tok_wikipidiea/Auth/AuthScreen.dart';
 import 'dart:convert';
 import 'package:tik_tok_wikipidiea/screens/profile/book_mark.dart';
 import 'package:tik_tok_wikipidiea/services/autoscroll.dart';
+import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 import 'dart:async';
+import 'package:tik_tok_wikipidiea/config.dart'; // Make sure this is imported to use the baseUrl
+import 'package:http/http.dart' as http;
+// Add these imports at the top of the file
+import 'package:tik_tok_wikipidiea/screens/profile/liked_articles.dart';
+import 'package:tik_tok_wikipidiea/screens/profile/your_comments.dart';
+import 'package:tik_tok_wikipidiea/screens/profile/milestones.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -56,6 +63,12 @@ class _ProfilePageState extends State<ProfilePage> {
     "https://via.placeholder.com/150/FFEB3B/000000",
   ];
 
+  // Add loading state for interactions
+  bool isLoadingInteractions = false;
+
+  // Add to the top of the _ProfilePageState class
+  final BookmarkService _bookmarkService = BookmarkService();
+
   @override
   void initState() {
     super.initState();
@@ -98,23 +111,6 @@ class _ProfilePageState extends State<ProfilePage> {
         print("domains are ${domains}");
       }
 
-      // Get user interactions data
-      final interactionsString = prefs.getString('userInteractions');
-      Map<String, dynamic> interactions = {
-        'likedArticles': [],
-        'commentedArticles': [],
-        'sharedArticles': [],
-      };
-
-      if (interactionsString != null && interactionsString.isNotEmpty) {
-        try {
-          interactions = json.decode(interactionsString);
-          print("Loaded interactions: $interactions");
-        } catch (e) {
-          print("Error parsing interactions: $e");
-        }
-      }
-
       // Update the state with loaded data
       if (mounted) {
         setState(() {
@@ -123,9 +119,13 @@ class _ProfilePageState extends State<ProfilePage> {
           userBio = bio ?? "No Bio";
           userId = id ?? "";
           interestedDomains = domains;
-          userInteractions = interactions;
           isLoading = false;
         });
+
+        // Now fetch interactions from backend
+        if (userId.isNotEmpty) {
+          _fetchUserInteractions();
+        }
       }
     } catch (e) {
       print('Error loading user data: $e');
@@ -135,6 +135,51 @@ class _ProfilePageState extends State<ProfilePage> {
         });
       }
     }
+  }
+
+  // Add this method to fetch interactions from backend
+  Future<void> _fetchUserInteractions() async {
+    if (userId.isEmpty) return;
+
+    setState(() {
+      isLoadingInteractions = true;
+    });
+
+    try {
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse('$baseUrl/user/$userId/interactions'),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (mounted) {
+          setState(() {
+            userInteractions = {
+              'likedArticles': data['likedArticles'] ?? [],
+              'commentedArticles': data['commentedArticles'] ?? [],
+              'sharedArticles': data['sharedArticles'] ?? [],
+            };
+            isLoadingInteractions = false;
+          });
+        }
+      } else {
+        throw Exception('Failed to load user interactions');
+      }
+    } catch (e) {
+      print('Error fetching user interactions: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingInteractions = false;
+        });
+      }
+    }
+  }
+
+  // Update the refresh to also refresh interactions
+  Future<void> _refreshUserData() async {
+    await _loadUserData();
   }
 
   // Add this method to update UI when theme changes from elsewhere
@@ -573,9 +618,12 @@ class _ProfilePageState extends State<ProfilePage> {
                                             );
 
                                             // Navigate to login screen
-                                            Navigator.of(context).pushReplacement(
+                                            Navigator.of(
+                                              context,
+                                            ).pushReplacement(
                                               MaterialPageRoute(
-                                                builder: (context) => AuthScreen(),
+                                                builder:
+                                                    (context) => AuthScreen(),
                                               ),
                                             );
                                           },
@@ -624,7 +672,7 @@ class _ProfilePageState extends State<ProfilePage> {
           isLoading
               ? Center(child: CircularProgressIndicator())
               : RefreshIndicator(
-                onRefresh: _loadUserData,
+                onRefresh: _refreshUserData, // Use the renamed method
                 child: ListView(
                   controller: _scrollController,
                   padding: EdgeInsets.all(16),
@@ -699,48 +747,87 @@ class _ProfilePageState extends State<ProfilePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Icon(
-                                  Icons.analytics_outlined,
-                                  color: theme.primaryColor,
-                                  size: 20,
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.analytics_outlined,
+                                      color: theme.primaryColor,
+                                      size: 20,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Your Activity',
+                                      style: theme.textTheme.bodyLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                    ),
+                                  ],
                                 ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Your Activity',
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
+                                // Add refresh button
+                                if (!isLoadingInteractions)
+                                  IconButton(
+                                    icon: Icon(Icons.refresh, size: 18),
+                                    onPressed: _fetchUserInteractions,
+                                    tooltip: 'Refresh interactions',
+                                    visualDensity: VisualDensity.compact,
                                   ),
-                                ),
+                                if (isLoadingInteractions)
+                                  SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
                               ],
                             ),
                             SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                _buildStatColumn(
-                                  context,
-                                  Icons.favorite,
-                                  likedCount.toString(),
-                                  'Liked',
-                                  theme.primaryColor,
+                            isLoadingInteractions
+                                ? Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 24),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                )
+                                : Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceAround,
+                                  children: [
+                                    _buildStatColumn(
+                                      context,
+                                      Icons.favorite,
+                                      likedCount.toString(),
+                                      'Liked',
+                                      theme.primaryColor,
+                                    ),
+                                    _buildStatColumn(
+                                      context,
+                                      Icons.comment,
+                                      commentedCount.toString(),
+                                      'Comments',
+                                      Colors.amber,
+                                    ),
+                                    _buildStatColumn(
+                                      context,
+                                      Icons.share,
+                                      sharedCount.toString(),
+                                      'Shared',
+                                      Colors.green,
+                                    ),
+                                    // Add new bookmark column
+                                    _buildStatColumn(
+                                      context,
+                                      Icons.bookmark,
+                                      _bookmarkService.bookmarkedPosts.length
+                                          .toString(),
+                                      'Bookmarks',
+                                      Colors.blue,
+                                    ),
+                                  ],
                                 ),
-                                _buildStatColumn(
-                                  context,
-                                  Icons.comment,
-                                  commentedCount.toString(),
-                                  'Comments',
-                                  Colors.amber,
-                                ),
-                                _buildStatColumn(
-                                  context,
-                                  Icons.share,
-                                  sharedCount.toString(),
-                                  'Shared',
-                                  Colors.green,
-                                ),
-                              ],
-                            ),
                             SizedBox(height: 8),
                           ],
                         ),
@@ -935,56 +1022,14 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             SizedBox(height: 16),
 
-                            // Articles Read - regular stat
-                            _buildStatRow('Articles Read', '42', theme),
-                            SizedBox(height: 12),
-
-                            // Bookmarks - clickable stat that navigates to bookmarks page
-                            InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => BookmarksPage(),
-                                  ),
-                                );
-                              },
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(vertical: 4),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          'Bookmarks',
-                                          style: theme.textTheme.bodyMedium,
-                                        ),
-                                        SizedBox(width: 4),
-                                        Icon(
-                                          Icons.arrow_forward_ios,
-                                          size: 12,
-                                          color: theme.iconTheme.color,
-                                        ),
-                                      ],
-                                    ),
-                                    Text(
-                                      '15', // This would normally come from a real count
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: theme.primaryColor,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                            // Articles Read - sum of all interactions
+                            _buildStatRow(
+                              'Articles Read',
+                              (likedCount + commentedCount + sharedCount)
+                                  .toString(),
+                              theme,
                             ),
                             SizedBox(height: 12),
-
-                            // Comments - regular stat
-                            _buildStatRow('Comments', '7', theme),
                           ],
                         ),
                       ),
@@ -1052,25 +1097,64 @@ class _ProfilePageState extends State<ProfilePage> {
   ) {
     final theme = Theme.of(context);
 
-    return Column(
-      children: [
-        Container(
-          padding: EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.1),
-            shape: BoxShape.circle,
+    return GestureDetector(
+      onTap: () {
+        // Navigate based on which stat was clicked
+        if (label == 'Liked') {
+          print(userInteractions);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => LikedArticlesPage(
+                    likedArticles: userInteractions['likedArticles'] ?? [],
+                  ),
+            ),
+          );
+        } else if (label == 'Comments') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => YourCommentsPage()),
+          );
+        } else if (label == 'Bookmarks') {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => BookmarksPage()),
+          );
+        } else if (label == 'Shared') {
+          // Add milestone for shares
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => MilestonesPage(
+                    currentCount: int.parse(count),
+                    type: 'shares',
+                  ),
+            ),
+          );
+        }
+      },
+      child: Column(
+        children: [
+          Container(
+            padding: EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: iconColor, size: 24),
           ),
-          child: Icon(icon, color: iconColor, size: 24),
-        ),
-        SizedBox(height: 8),
-        Text(
-          count,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
+          SizedBox(height: 8),
+          Text(
+            count,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        Text(label, style: theme.textTheme.bodySmall),
-      ],
+          Text(label, style: theme.textTheme.bodySmall),
+        ],
+      ),
     );
   }
 }
