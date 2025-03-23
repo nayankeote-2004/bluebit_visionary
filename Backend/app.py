@@ -28,7 +28,7 @@ def get_wikipedia_data(topic):
     )
     
     # Search for pages related to the topic
-    search_results = wikipedia.search(topic, results=100)  # Get up to 5 related pages
+    search_results = wikipedia.search(topic, results=10)  # Get up to 5 related pages
     data = []
     
     try:
@@ -538,6 +538,41 @@ def add_comment(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
+@app.route('/domains/<domain>/articles/<article_id>/comments', methods=['GET'])
+def get_article_comments(domain, article_id):
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)
+        
+        # Get the domain collection
+        domain_collection = db[domain]
+        
+        # Find the article
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+        
+        # Get comments (if any)
+        comments = article.get("comments", [])
+        
+        # Return the comments in chronological order (oldest first)
+        # Convert any datetime objects to strings for JSON serialization
+        for comment in comments:
+            if 'timestamp' in comment and isinstance(comment['timestamp'], datetime):
+                comment['timestamp'] = comment['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        
+        return jsonify({
+            "articleId": article_id,
+            "articleTitle": article.get("title", ""),
+            "domain": domain,
+            "comments": comments,
+            "commentCount": len(comments)
+        }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
 @app.route('/domains/<domain>/articles/<article_id>/share', methods=['POST'])
 def share_article(domain, article_id):
     data = request.json
@@ -611,12 +646,228 @@ def get_user_interactions(user_id):
             
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/domains/<domain>/articles/<article_id>', methods=['GET'])
+def get_article_by_id(domain, article_id):
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)  # Convert to integer as Wikipedia page IDs are integers
+        
+        # Get the domain collection
+        domain_collection = db[domain]
+        
+        # Find the article
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+        
+        # Convert MongoDB _id to string for serialization
+        if "_id" in article:
+            article["_id"] = str(article["_id"])
+            
+        # Return the full article data
+        return jsonify({
+            "article": article,
+            "domain": domain
+        }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
     
-@app.route('/user/<user_id>/recommended-articles', methods=['GET'])
-def get_recommended_articles(user_id):
+@app.route('/user/<user_id>/bert-recommendations', methods=['GET'])
+def get_bert_recommendations(user_id):
     try:
         # Convert the string user ID to MongoDB ObjectId
         from bson.objectid import ObjectId
+        from transformers import BertTokenizer, BertForSequenceClassification
+        import torch
+        import numpy as np
+        
+        user_id_obj = ObjectId(user_id)
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id_obj})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get user's interested domains and interactions
+        interested_domains = user.get("interestedDomains", [])
+        liked_articles = user.get("likedArticles", [])
+        commented_articles = user.get("commentedArticles", [])
+        shared_articles = user.get("sharedArticles", [])
+        
+        if not interested_domains:
+            return jsonify({"error": "User has no interested domains selected"}), 404
+            
+        # Convert domain names to lowercase for collection names
+        domain_collections = [domain.lower() for domain in interested_domains]
+        
+        # Create a set of all interacted article IDs to avoid recommending them
+        interacted_articles = set()
+        for item in liked_articles + commented_articles + shared_articles:
+            if 'articleId' in item and 'domain' in item:
+                interacted_articles.add((item['articleId'], item['domain']))
+        
+        # Define the mapping of domains to subdomains
+        domain_to_subdomains = {
+            "nature": ["Ecology", "Wildlife Conservation", "Botany", "Marine Biology", "Climatology", 
+                      "Geology", "Environmental Science", "Biodiversity", "Natural Disasters", "Forestry"],
+            "education": ["Early Childhood Education", "Higher Education", "Online Learning", "STEM Education", 
+                         "Special Education", "Educational Psychology", "Teaching Methods", "Language Learning", 
+                         "EdTech", "Curriculum Development"],
+            "entertainment": ["Movies", "Music", "Television Shows", "Video Games", "Theatre & Performing Arts", 
+                             "Anime & Manga", "Stand-up Comedy", "Celebrity News", "Book & Literature", "Streaming Platforms"],
+            "technology": ["Artificial Intelligence", "Cybersecurity", "Software Development", "Hardware & Gadgets", 
+                          "Blockchain & Cryptocurrency", "Quantum Computing", "Internet of Things", "Cloud Computing", 
+                          "Networking & Telecommunications", "Data Science & Big Data"],
+            "science": ["Physics", "Chemistry", "Biology", "Astronomy", "Genetics", "Neuroscience", "Nanotechnology", 
+                       "Meteorology", "Biochemistry", "Space Exploration"],
+            "political": ["International Relations", "Government Systems", "Political Theories", "Elections & Voting", 
+                         "Public Policy", "Human Rights", "Law & Judiciary", "Political Movements", "Diplomacy & Treaties", "Geopolitics"],
+            "lifestyle": ["Travel & Tourism", "Fashion & Style", "Health & Wellness", "Personal Finance", "Minimalism", 
+                         "Parenting & Family", "Home & Interior Design", "Work-Life Balance", "Self-Improvement", "Hobbies & Leisure"],
+            "social": ["Sociology", "Psychology", "Social Media Trends", "Cultural Studies", "Human Behavior", 
+                      "Community Development", "Ethics & Morality", "Gender Studies", "Social Justice", "Philanthropy"],
+            "space": ["Solar System", "Exoplanets", "Black Holes", "Space Missions", "Space Technology", "Astrobiology", 
+                     "Space Colonization", "Theories of the Universe", "Cosmology", "Dark Matter & Energy"],
+            "food": ["Culinary Arts", "Nutrition & Diet", "Food Science", "Street Food", "Beverages & Brewing", 
+                    "Vegan & Vegetarian Diets", "World Cuisines", "Baking & Pastry", "Food History", "Restaurant Industry"]
+        }
+
+        # Get subdomain recommendations if user has liked articles
+        bert_recommended_articles = []
+        
+        if liked_articles:
+            try:
+                # Load BERT model and tokenizer for classification
+                tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+                model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
+                
+                # Extract summaries from liked articles
+                summaries = []
+                article_domains = []
+                
+                for liked in liked_articles[:10]:  # Use up to 10 most recent liked articles
+                    domain = liked.get('domain')
+                    if not domain:
+                        continue
+                        
+                    article_id = liked.get('articleId')
+                    if not article_id:
+                        continue
+                        
+                    # Find the article in its domain collection
+                    article = db[domain].find_one({"id": article_id})
+                    if article and 'summary' in article:
+                        summaries.append(article['summary'])
+                        article_domains.append(domain)
+                
+                # Identify most relevant subdomains using BERT
+                subdomain_scores = {}
+                
+                for i, summary in enumerate(summaries):
+                    domain = article_domains[i]
+                    subdomains = domain_to_subdomains.get(domain, [])
+                    
+                    if not subdomains:
+                        continue
+                    
+                    # Use BERT to classify text into subdomains
+                    # This is a simplified approach - in production, you'd use a fine-tuned model
+                    inputs = tokenizer(summary, return_tensors="pt", truncation=True, padding=True)
+                    with torch.no_grad():
+                        outputs = model(**inputs)
+                    
+                    # Simulate subdomain classification with random scores for this example
+                    # In production, replace with actual classification logic
+                    subdomain_probs = np.random.random(len(subdomains))
+                    subdomain_probs = subdomain_probs / subdomain_probs.sum()  # Normalize to sum to 1
+                    
+                    for j, subdomain in enumerate(subdomains):
+                        if subdomain not in subdomain_scores:
+                            subdomain_scores[subdomain] = 0
+                        subdomain_scores[subdomain] += subdomain_probs[j]
+                
+                # Get top 3 subdomains
+                top_subdomains = sorted(subdomain_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+                
+                # Fetch articles from Wikipedia API for each top subdomain
+                articles_per_subdomain = 10 // len(top_subdomains) if top_subdomains else 0
+                
+                for subdomain, score in top_subdomains:
+                    # Get articles from Wikipedia using get_wikipedia_data
+                    subdomain_wiki_data = get_wikipedia_data(subdomain)
+                    
+                    if subdomain_wiki_data:
+                        # Take only what we need from each article and add subdomain info
+                        for article in subdomain_wiki_data[:articles_per_subdomain]:
+                            article["subdomain"] = subdomain
+                            article["subdomain_score"] = float(score)
+                            # Find which main domain this subdomain belongs to
+                            for domain, subdomains in domain_to_subdomains.items():
+                                if subdomain in subdomains:
+                                    article["domain"] = domain
+                                    break
+                            
+                            bert_recommended_articles.append(article)
+                
+            except Exception as bert_error:
+                print(f"Error in BERT recommendation: {str(bert_error)}")
+        
+        # If BERT recommendations didn't yield enough articles, get more from other domains
+        if len(bert_recommended_articles) < 10:
+            remaining_bert = 10 - len(bert_recommended_articles)
+            # Get random articles from user's interested domains
+            for domain in domain_collections[:3]:  # Just use first 3 domains to keep it simple
+                if len(bert_recommended_articles) >= 10:
+                    break
+                    
+                if domain in db.list_collection_names():
+                    # Get article IDs to exclude
+                    exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+                    already_recommended_ids = [a.get("id") for a in bert_recommended_articles if a.get("domain") == domain]
+                    exclude_ids.extend(already_recommended_ids)
+                    
+                    random_articles = list(db[domain].aggregate([
+                        {"$match": {"id": {"$nin": exclude_ids}}},
+                        {"$sample": {"size": remaining_bert // 3 + 1}},
+                        {"$project": {"_id": 0}}
+                    ]))
+                    
+                    for article in random_articles:
+                        article["domain"] = domain
+                        article["recommendation_source"] = "fallback"
+                    
+                    bert_recommended_articles.extend(random_articles)
+                    if len(bert_recommended_articles) >= 10:
+                        bert_recommended_articles = bert_recommended_articles[:10]
+                        break
+        
+        # Remove duplicates by ID
+        seen_ids = set()
+        unique_bert_articles = []
+        
+        for article in bert_recommended_articles:
+            if article["id"] not in seen_ids:
+                seen_ids.add(article["id"])
+                unique_bert_articles.append(article)
+        
+        return jsonify({
+            "bertRecommendedArticles": unique_bert_articles[:10],  # Limit to 10 articles
+            "count": len(unique_bert_articles[:10]),
+            "method": "BERT-based subdomain classification"
+        }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/user/<user_id>/standard-recommendations', methods=['GET'])
+def get_standard_recommendations(user_id):
+    try:
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        
         user_id_obj = ObjectId(user_id)
         
         # Find the user
@@ -643,6 +894,10 @@ def get_recommended_articles(user_id):
                 interacted_articles.add((item['articleId'], item['domain']))
         
         recommended_articles = []
+        
+        # Get 30 articles based on user scores and 10 random articles
+        articles_to_fetch_by_score = 30
+        articles_to_fetch_random = 10
         
         # Check if we have enough liked articles to use the advanced algorithm
         if len(liked_articles) >= 5:
@@ -681,13 +936,12 @@ def get_recommended_articles(user_id):
                 for domain in domain_scores:
                     domain_percentiles[domain] = 10  # 10% each for 10 domains
             
-            # Select 40 articles based on domain percentiles
-            articles_to_fetch = 40
+            # Select 30 articles based on domain percentiles
             high_percentile_domains = [d for d, p in domain_percentiles.items() if p > 50]
             
             # Distribute articles according to percentiles
             domain_article_counts = {}
-            remaining = articles_to_fetch
+            remaining = articles_to_fetch_by_score
             
             for domain, percentile in domain_percentiles.items():
                 # Skip domains with no collections
@@ -695,11 +949,11 @@ def get_recommended_articles(user_id):
                     continue
                     
                 # Calculate articles to fetch for this domain
-                domain_count = int(round(articles_to_fetch * (percentile / 100)))
+                domain_count = int(round(articles_to_fetch_by_score * (percentile / 100)))
                 domain_article_counts[domain] = min(domain_count, remaining)
                 remaining -= domain_article_counts[domain]
             
-            # If we didn't allocate all 40 articles, distribute the remainder
+            # If we didn't allocate all 30 articles, distribute the remainder
             if remaining > 0:
                 valid_domains = [d for d in domain_scores.keys() if d in db.list_collection_names()]
                 if valid_domains:
@@ -727,21 +981,23 @@ def get_recommended_articles(user_id):
                     {"$project": {"_id": 0}}
                 ]))
                 
-                # Add domain name to each article
+                # Add domain name and score info to each article
                 for article in domain_articles:
                     article["domain"] = domain
+                    article["domain_score"] = float(domain_percentiles[domain])
+                    article["recommendation_source"] = "score_based"
                 
                 recommended_articles.extend(domain_articles)
             
-            # Select 10 more articles from domains with percentile <= 50
-            remaining = 10
+            # Get 10 random articles from domains with percentile <= 50
+            remaining_random = articles_to_fetch_random
             if recommended_articles:
                 low_percentile_domains = [d for d in domain_scores.keys() 
                                          if d not in high_percentile_domains
                                          and d in db.list_collection_names()]
                 
                 if low_percentile_domains:
-                    articles_per_domain = max(1, remaining // len(low_percentile_domains))
+                    articles_per_domain = max(1, remaining_random // len(low_percentile_domains))
                     
                     for domain in low_percentile_domains:
                         # Get article IDs to exclude
@@ -755,20 +1011,22 @@ def get_recommended_articles(user_id):
                             {"$project": {"_id": 0}}
                         ]))
                         
-                        # Add domain name to each article
+                        # Add domain name and source info to each article
                         for article in additional_articles:
                             article["domain"] = domain
+                            article["domain_score"] = float(domain_percentiles[domain])
+                            article["recommendation_source"] = "random"
                             
                         recommended_articles.extend(additional_articles)
-                        remaining -= len(additional_articles)
+                        remaining_random -= len(additional_articles)
                         
-                        if remaining <= 0:
+                        if remaining_random <= 0:
                             break
             
         else:
             # Simple recommendation for users with fewer than 5 liked articles
             # Get random articles from each interested domain
-            articles_per_domain = max(1, 50 // len(domain_collections))
+            articles_per_domain = max(1, 40 // len(domain_collections))  # 40 articles total
             
             for domain in domain_collections:
                 # Make sure the domain collection exists
@@ -783,26 +1041,27 @@ def get_recommended_articles(user_id):
                         {"$project": {"_id": 0}}
                     ]))
                     
-                    # Add domain name to each article
+                    # Add domain name and source info to each article
                     for article in domain_articles:
                         article["domain"] = domain
+                        article["recommendation_source"] = "new_user"
                     
                     recommended_articles.extend(domain_articles)
         
-        # If we have fewer than 50 articles, grab more from random domains
-        if len(recommended_articles) < 50:
-            remaining = 50 - len(recommended_articles)
+        # If we still don't have 40 articles, grab more from random domains
+        if len(recommended_articles) < 40:
+            remaining_from_collections = 40 - len(recommended_articles)
             all_domains = ["nature", "education", "entertainment", "technology", 
                           "science", "political", "lifestyle", "social", 
                           "space", "food"]
             
-            # Filter to domains with collections and that aren't high percentile
+            # Filter to domains with collections and that aren't already well-represented
             valid_domains = [d.lower() for d in all_domains 
                            if d.lower() in db.list_collection_names() 
-                           and d.lower() not in high_percentile_domains] if 'high_percentile_domains' in locals() else [d.lower() for d in all_domains if d.lower() in db.list_collection_names()]
+                           and d.lower() not in (high_percentile_domains if 'high_percentile_domains' in locals() else [])]
             
             if valid_domains:
-                articles_per_domain = max(1, remaining // len(valid_domains))
+                articles_per_domain = max(1, remaining_from_collections // len(valid_domains))
                 
                 for domain in valid_domains:
                     # Get article IDs to exclude
@@ -816,17 +1075,18 @@ def get_recommended_articles(user_id):
                         {"$project": {"_id": 0}}
                     ]))
                     
-                    # Add domain name to each article
+                    # Add domain name and source info to each article
                     for article in extra_articles:
                         article["domain"] = domain
+                        article["recommendation_source"] = "fallback"
                         
                     recommended_articles.extend(extra_articles)
-                    remaining -= len(extra_articles)
+                    remaining_from_collections -= len(extra_articles)
                     
-                    if remaining <= 0:
+                    if remaining_from_collections <= 0:
                         break
         
-        # Ensure no duplicates in the final recommendation list
+        # Remove duplicates by ID
         seen_ids = set()
         unique_articles = []
         
@@ -836,8 +1096,9 @@ def get_recommended_articles(user_id):
                 unique_articles.append(article)
         
         return jsonify({
-            "recommendedArticles": unique_articles[:50],  # Limit to 50 articles
-            "count": len(unique_articles[:50])
+            "standardRecommendedArticles": unique_articles[:40],  # Limit to 40 articles
+            "count": len(unique_articles[:40]),
+            "method": "Interest and interaction based recommendations"
         }), 200
             
     except Exception as e:

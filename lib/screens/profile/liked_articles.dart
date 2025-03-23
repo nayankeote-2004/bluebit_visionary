@@ -6,6 +6,32 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+class LikedArticle {
+  final int articleId;
+  final String domain;
+  final String articleTitle;
+  final DateTime likedAt;
+
+  LikedArticle({
+    required this.articleId,
+    required this.domain,
+    required this.articleTitle,
+    required this.likedAt,
+  });
+
+  factory LikedArticle.fromJson(Map<String, dynamic> json) {
+    return LikedArticle(
+      articleId: json['articleId'],
+      domain: json['domain'],
+      articleTitle: json['articleTitle'],
+      likedAt:
+          json['likedAt'] != null && json['likedAt']['\$date'] != null
+              ? DateTime.parse(json['likedAt']['\$date'])
+              : DateTime.now(),
+    );
+  }
+}
+
 class LikedArticlesPage extends StatefulWidget {
   const LikedArticlesPage({Key? key}) : super(key: key);
 
@@ -15,6 +41,7 @@ class LikedArticlesPage extends StatefulWidget {
 
 class _LikedArticlesPageState extends State<LikedArticlesPage> {
   List<Post> likedPosts = [];
+  List<LikedArticle> likedArticles = [];
   bool isLoading = true;
   String userId = "";
 
@@ -60,40 +87,133 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
 
       if (interactionsResponse.statusCode == 200) {
         final data = json.decode(interactionsResponse.body);
-        final likedArticleIds = data['likedArticles'] ?? [];
+        final likedArticlesData = data['likedArticles'] ?? [];
 
-        if (likedArticleIds.isEmpty) {
+        print("likedArticleData" + likedArticlesData);
+        if (likedArticlesData.isEmpty) {
           setState(() {
             likedPosts = [];
+            likedArticles = [];
             isLoading = false;
           });
           return;
         }
 
+        // // Parse the liked articles data with error handling
+        // try {
+        //   likedArticles =
+        //       (likedArticlesData as List)
+        //           .map((article) => LikedArticle.fromJson(article))
+        //           .toList();
+
+        //   // Sort by most recent first
+        //   likedArticles.sort((a, b) => b.likedAt.compareTo(a.likedAt));
+        // } catch (e) {
+        //   print('Error parsing liked articles: $e');
+        //   likedArticles = [];
+        // }
+
         // Now fetch details for each liked article
         final List<Post> fetchedPosts = [];
 
-        for (var article in likedArticleIds) {
+        for (var article in likedArticles) {
           try {
-            // Extract domain and article ID from the stored format
-            final parts = article.split(':');
-            if (parts.length == 2) {
-              final String domain = parts[0];
-              final String articleId = parts[1];
+            final articleResponse = await http.get(
+              Uri.parse(
+                '$baseUrl/domains/${article.domain}/articles/${article.articleId}',
+              ),
+            );
 
-              final articleResponse = await http.get(
-                Uri.parse('$baseUrl/domains/$domain/articles/$articleId'),
-              );
+            if (articleResponse.statusCode == 200) {
+              final responseData = json.decode(articleResponse.body);
+              final articleData =
+                  responseData['article']; // Extract the article data
 
-              if (articleResponse.statusCode == 200) {
-                final articleData = json.decode(articleResponse.body);
-                final post = Post.fromJson(articleData);
-                post.isLiked = true; // Mark as liked
-                fetchedPosts.add(post);
+              // Safely extract fields with null checking
+              int articleId = article.articleId;
+              if (articleData['id'] != null) {
+                // Try to parse the id if it's a string
+                if (articleData['id'] is String) {
+                  articleId =
+                      int.tryParse(articleData['id']) ?? article.articleId;
+                } else if (articleData['id'] is int) {
+                  articleId = articleData['id'];
+                }
               }
+
+              // Create a Post object with much safer type handling
+              final post = Post(
+                id: articleId,
+                title: articleData['title']?.toString() ?? article.articleTitle,
+                domain: article.domain,
+                summary:
+                    articleData['summary']?.toString() ??
+                    "No summary available",
+                imageUrl:
+                    articleData['image_url']?.toString() ??
+                    "https://via.placeholder.com/300x200?text=${article.domain}",
+                createdAt: _formatCreatedAt(
+                  articleData['created_at'],
+                  article.likedAt,
+                ),
+                funFact:
+                    articleData['fun_fact']?.toString() ??
+                    "No fun fact available",
+                readingTime: _safeExtractInt(articleData['reading_time'], 3),
+                relatedTopics: _safeExtractRelatedTopics(
+                  articleData['related_topics'],
+                ),
+                sections: _safeConvertToSections(articleData['sections']),
+                isLiked: true,
+                comments: _safeExtractComments(articleData['comments']),
+                isBookmarked: false,
+              );
+              fetchedPosts.add(post);
+            } else {
+              // If we can't get the full article data, create a simplified post
+              final post = Post(
+                id: article.articleId,
+                title: article.articleTitle,
+                domain: article.domain,
+                summary: "Summary not available",
+                imageUrl:
+                    "https://via.placeholder.com/300x200?text=${article.domain}",
+                createdAt: article.likedAt.toString(),
+                funFact: "No fun fact available",
+                readingTime: 2,
+                relatedTopics: [],
+                sections: [],
+                isLiked: true,
+                comments: [],
+                isBookmarked: false,
+              );
+              fetchedPosts.add(post);
             }
           } catch (e) {
-            print('Error fetching article details: $e');
+            print(
+              'Error fetching article details for ${article.articleTitle}: $e',
+            );
+            // Create a fallback post even if there's an error
+            try {
+              final post = Post(
+                id: article.articleId,
+                title: article.articleTitle,
+                domain: article.domain,
+                summary: "Error loading article details",
+                imageUrl: "https://via.placeholder.com/300x200?text=Error",
+                createdAt: article.likedAt.toString(),
+                funFact: "No fun fact available",
+                readingTime: 1,
+                relatedTopics: [],
+                sections: [],
+                isLiked: true,
+                comments: [],
+                isBookmarked: false,
+              );
+              fetchedPosts.add(post);
+            } catch (fallbackError) {
+              print('Error creating fallback post: $fallbackError');
+            }
           }
         }
 
@@ -125,7 +245,14 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
       if (response.statusCode == 200) {
         setState(() {
           likedPosts.removeWhere(
-            (p) => p.id == post.id && p.domain == post.domain,
+            (p) =>
+                p.id == int.tryParse(post.id.toString()) &&
+                p.domain == post.domain,
+          );
+          likedArticles.removeWhere(
+            (a) =>
+                a.articleId == int.tryParse(post.id.toString()) &&
+                a.domain == post.domain,
           );
         });
         ScaffoldMessenger.of(context).showSnackBar(
@@ -248,6 +375,10 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
       itemCount: posts.length,
       itemBuilder: (context, index) {
         final post = posts[index];
+        final likedAt =
+            index < likedArticles.length
+                ? _formatDate(likedArticles[index].likedAt)
+                : "";
 
         return Container(
           margin: EdgeInsets.only(bottom: 16),
@@ -304,7 +435,7 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
                           ),
                         ),
 
-                        // Overlay for source
+                        // Overlay for source and liked date
                         Positioned(
                           bottom: 0,
                           left: 0,
@@ -325,19 +456,29 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  post.domain,
+                                  post.domain.toUpperCase(),
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
                                   ),
                                 ),
-                                Text(
-                                  "${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}",
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 12,
-                                  ),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.favorite,
+                                      color: Colors.red,
+                                      size: 14,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Liked $likedAt',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -374,6 +515,98 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
                             maxLines: 3,
                             overflow: TextOverflow.ellipsis,
                           ),
+
+                          SizedBox(height: 16),
+
+                          // Reading time, topics, and likes count
+                          Row(
+                            children: [
+                              Icon(Icons.timer, size: 16, color: Colors.grey),
+                              SizedBox(width: 4),
+                              Text(
+                                "${post.readingTime} min read",
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              SizedBox(width: 16),
+                              // Show like count if available
+                              Icon(
+                                Icons.favorite,
+                                size: 16,
+                                color: Colors.grey,
+                              ),
+                              SizedBox(width: 4),
+                              // Text(
+                              //   post is Map && post.containsKey('likes')
+                              //       ? "${post['likes']} likes"
+                              //       : "0 likes",
+                              //   style: TextStyle(
+                              //     color: Colors.grey,
+                              //     fontSize: 12,
+                              //   ),
+                              // ),
+                              SizedBox(width: 16),
+                              if (post.relatedTopics.isNotEmpty) ...[
+                                Icon(Icons.tag, size: 16, color: Colors.grey),
+                                SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    post.relatedTopics.take(2).join(', '),
+                                    style: TextStyle(
+                                      color: Colors.grey,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+
+                          // Add a fun fact if available and non-empty
+                          if (post.funFact != null &&
+                              post.funFact.isNotEmpty &&
+                              post.funFact != "No fun fact available") ...[
+                            SizedBox(height: 16),
+                            Container(
+                              padding: EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.primary.withOpacity(
+                                  0.1,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.lightbulb_outline,
+                                    color: theme.colorScheme.primary,
+                                    size: 18,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      "Fun fact: ${post.funFact}",
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontStyle: FontStyle.italic,
+                                        color:
+                                            isDarkMode
+                                                ? Colors.white70
+                                                : Colors.black87,
+                                      ),
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
 
                           SizedBox(height: 16),
 
@@ -436,4 +669,195 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
       },
     );
   }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      if (difference.inHours == 0) {
+        return '${difference.inMinutes} min ago';
+      }
+      return '${difference.inHours} hours ago';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
+    }
+  }
+
+  // Add these helper methods to the _LikedArticlesPageState class
+
+  // Helper method to convert section maps to Section objects
+  List<Section> _convertToSections(dynamic sectionsData) {
+    if (sectionsData == null) return [];
+
+    try {
+      return (sectionsData as List)
+          .map(
+            (section) => Section(
+              title: section['title'] ?? '',
+              content: section['content'] ?? '',
+            ),
+          )
+          .toList();
+    } catch (e) {
+      print('Error converting sections: $e');
+      return [];
+    }
+  }
+
+  // Helper method to extract minutes from reading time string or use default
+  int _extractReadingTimeMinutes(dynamic readingTime) {
+    if (readingTime == null) return 3; // Default to 3 minutes
+
+    // If it's already an int, return it
+    if (readingTime is int) return readingTime;
+
+    // If it's a string like "3 min read", extract the number
+    if (readingTime is String) {
+      final regex = RegExp(r'(\d+)');
+      final match = regex.firstMatch(readingTime);
+      if (match != null) {
+        return int.tryParse(match.group(1) ?? '3') ?? 3;
+      }
+    }
+
+    return 3; // Default fallback
+  }
+
+  // Add this helper method for extracting related topics
+  List<String> _extractRelatedTopics(dynamic topicsData) {
+    if (topicsData == null) return [];
+
+    try {
+      if (topicsData is List) {
+        return List<String>.from(topicsData.map((topic) => topic.toString()));
+      }
+    } catch (e) {
+      print('Error extracting related topics: $e');
+    }
+
+    return [];
+  }
+
+  // Add this helper method for extracting comments
+  List<String> _extractComments(dynamic commentsData) {
+    if (commentsData == null) return [];
+
+    try {
+      if (commentsData is List) {
+        if (commentsData.isEmpty) return [];
+
+        // If comments are objects with a text field, extract that
+        if (commentsData.first is Map) {
+          return List<String>.from(
+            commentsData.map((comment) => comment['text']?.toString() ?? ''),
+          );
+        }
+
+        // If comments are strings
+        return List<String>.from(
+          commentsData.map((comment) => comment.toString()),
+        );
+      }
+    } catch (e) {
+      print('Error extracting comments: $e');
+    }
+
+    return [];
+  }
+
+  // Add this helper method to your _LikedArticlesPageState class
+  int? _parseIdToInt(dynamic id) {
+    if (id == null) return null;
+    if (id is int) return id;
+    if (id is String) {
+      return int.tryParse(id);
+    }
+    return null;
+  }
+}
+
+// Safer helper methods
+String _formatCreatedAt(dynamic createdAt, DateTime fallbackDate) {
+  try {
+    if (createdAt != null && createdAt['\$date'] != null) {
+      return DateTime.parse(createdAt['\$date']).toString();
+    }
+  } catch (e) {
+    print('Error parsing date: $e');
+  }
+  return fallbackDate.toString();
+}
+
+int _safeExtractInt(dynamic value, int defaultValue) {
+  if (value == null) return defaultValue;
+  if (value is int) return value;
+  if (value is String) {
+    return int.tryParse(value) ?? defaultValue;
+  }
+  return defaultValue;
+}
+
+List<String> _safeExtractRelatedTopics(dynamic topicsData) {
+  if (topicsData == null) return [];
+
+  try {
+    if (topicsData is List) {
+      return List<String>.from(
+        topicsData.map((topic) => topic?.toString() ?? ""),
+      ).where((topic) => topic.isNotEmpty).toList();
+    }
+  } catch (e) {
+    print('Error extracting related topics: $e');
+  }
+
+  return [];
+}
+
+List<Section> _safeConvertToSections(dynamic sectionsData) {
+  if (sectionsData == null) return [];
+
+  try {
+    if (sectionsData is List) {
+      return sectionsData.map((section) {
+        if (section is Map) {
+          return Section(
+            title: section['title']?.toString() ?? '',
+            content: section['content']?.toString() ?? '',
+          );
+        }
+        return Section(title: '', content: '');
+      }).toList();
+    }
+  } catch (e) {
+    print('Error converting sections: $e');
+  }
+
+  return [];
+}
+
+List<String> _safeExtractComments(dynamic commentsData) {
+  if (commentsData == null) return [];
+
+  try {
+    if (commentsData is List) {
+      return commentsData
+          .map((comment) {
+            if (comment is Map && comment['text'] != null) {
+              return comment['text'].toString();
+            } else if (comment != null) {
+              return comment.toString();
+            }
+            return "";
+          })
+          .where((comment) => comment.isNotEmpty)
+          .toList();
+    }
+  } catch (e) {
+    print('Error extracting comments: $e');
+  }
+
+  return [];
 }
