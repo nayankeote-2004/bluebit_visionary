@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+// First, update the CommentItem class to use DateTime instead of String for timestamp
 class CommentItem {
   final Post post;
   final String comment;
@@ -73,7 +74,7 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
       if (interactionsResponse.statusCode == 200) {
         final data = json.decode(interactionsResponse.body);
         final commentedArticles = data['commentedArticles'] ?? [];
-
+        print('Commented articles: $commentedArticles');
         if (commentedArticles.isEmpty) {
           setState(() {
             userComments = [];
@@ -87,32 +88,128 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
 
         for (var commentData in commentedArticles) {
           try {
-            // Extract domain, article ID and comment from the stored format
-            // Assuming format: { articleId: "domain:id", comment: "text", timestamp: date }
-            final String articleId = commentData['articleId'];
-            final String commentText = commentData['comment'];
-            final DateTime timestamp = DateTime.parse(commentData['timestamp']);
+            final int articleId = commentData['articleId'];
+            final String domain = commentData['domain'];
+            final String commentText = commentData['commentText'];
 
-            final parts = articleId.split(':');
-            if (parts.length == 2) {
-              final String domain = parts[0];
-              final String id = parts[1];
+            // Parse the timestamp
+            DateTime commentTimestamp;
+            try {
+              if (commentData['commentedAt'] is int) {
+                commentTimestamp = DateTime.fromMillisecondsSinceEpoch(
+                  commentData['commentedAt'],
+                );
+              } else if (commentData['commentedAt'] is String) {
+                String commentedAt = commentData['commentedAt'];
+                try {
+                  // First try ISO format
+                  commentTimestamp = DateTime.parse(commentedAt);
+                } catch (parseError) {
+                  // Try HTTP date format (e.g., "Sun, 23 Mar 2025 05:34:21 GMT")
+                  try {
+                    final RegExp httpDatePattern = RegExp(
+                      r'^[A-Za-z]{3}, (\d{1,2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$',
+                    );
+                    final match = httpDatePattern.firstMatch(commentedAt);
 
-              final articleResponse = await http.get(
-                Uri.parse('$baseUrl/domains/$domain/articles/$id'),
+                    if (match != null) {
+                      final day = int.parse(match.group(1)!);
+                      final monthStr = match.group(2)!;
+                      final year = int.parse(match.group(3)!);
+                      final hour = int.parse(match.group(4)!);
+                      final minute = int.parse(match.group(5)!);
+                      final second = int.parse(match.group(6)!);
+
+                      // Convert month string to number
+                      final months = {
+                        'Jan': 1,
+                        'Feb': 2,
+                        'Mar': 3,
+                        'Apr': 4,
+                        'May': 5,
+                        'Jun': 6,
+                        'Jul': 7,
+                        'Aug': 8,
+                        'Sep': 9,
+                        'Oct': 10,
+                        'Nov': 11,
+                        'Dec': 12,
+                      };
+                      final month = months[monthStr] ?? 1;
+
+                      commentTimestamp = DateTime.utc(
+                        year,
+                        month,
+                        day,
+                        hour,
+                        minute,
+                        second,
+                      );
+                    } else {
+                      throw FormatException('Not an HTTP date format');
+                    }
+                  } catch (httpError) {
+                    print('HTTP date parsing failed for: $commentedAt');
+                    commentTimestamp = DateTime.now();
+                  }
+                }
+              } else {
+                commentTimestamp = DateTime.now();
+              }
+            } catch (e) {
+              print(
+                'Error parsing timestamp: $e for value: ${commentData['commentedAt']}',
+              );
+              commentTimestamp = DateTime.now();
+            }
+
+            final articleResponse = await http.get(
+              Uri.parse('$baseUrl/domains/$domain/articles/$articleId'),
+            );
+
+            if (articleResponse.statusCode == 200) {
+              final articleData = json.decode(articleResponse.body);
+
+              // Print the actual structure for debugging
+              print('Article data structure: ${articleData.runtimeType}');
+              print(
+                'Article comments type: ${articleData['article']['comments'].runtimeType}',
               );
 
-              if (articleResponse.statusCode == 200) {
-                final articleData = json.decode(articleResponse.body);
-                final post = Post.fromJson(articleData);
+              // Create a copy of the article data to modify
+              final modifiedArticleData = Map<String, dynamic>.from(
+                articleData['article'],
+              );
+
+              // Convert comments to the expected format if needed
+              if (modifiedArticleData.containsKey('comments')) {
+                if (modifiedArticleData['comments'] is List) {
+                  // Ensure comments are strings
+                  List<dynamic> rawComments = modifiedArticleData['comments'];
+                  modifiedArticleData['comments'] =
+                      rawComments.map((comment) {
+                        // If it's a map, extract the text or convert to string
+                        if (comment is Map) {
+                          return comment['text'] ?? comment.toString();
+                        }
+                        return comment.toString();
+                      }).toList();
+                }
+              }
+
+              try {
+                final post = Post.fromJson(modifiedArticleData);
 
                 fetchedComments.add(
                   CommentItem(
                     post: post,
                     comment: commentText,
-                    timestamp: timestamp,
+                    timestamp: commentTimestamp,
                   ),
                 );
+              } catch (e) {
+                print('Error creating Post from JSON: $e');
+                print('Modified article data: $modifiedArticleData');
               }
             }
           } catch (e) {
@@ -249,136 +346,103 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
             borderRadius: BorderRadius.circular(16),
             child: Material(
               color: theme.cardColor,
-              child: InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => DetailScreen(post: post),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Article info section
+                  ListTile(
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
                     ),
-                  );
-                },
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Article info section
-                    ListTile(
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundImage: NetworkImage(post.imageUrl),
-                        onBackgroundImageError: (_, __) {},
-                        backgroundColor:
-                            isDarkMode ? Colors.grey[800] : Colors.grey[300],
-                      ),
-                      title: Text(
-                        post.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      subtitle: Text(
-                        post.domain,
-                        style: TextStyle(
-                          color: theme.colorScheme.secondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                      trailing: Text(
-                        _formatDate(commentItem.timestamp),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.textTheme.bodySmall?.color,
-                        ),
+                    leading: CircleAvatar(
+                      backgroundImage: NetworkImage(post.imageUrl),
+                      onBackgroundImageError: (_, __) {},
+                      backgroundColor:
+                          isDarkMode ? Colors.grey[800] : Colors.grey[300],
+                    ),
+                    title: Text(
+                      post.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      post.domain,
+                      style: TextStyle(
+                        color: theme.colorScheme.secondary,
+                        fontSize: 12,
                       ),
                     ),
-
-                    // Divider
-                    Divider(height: 1),
-
-                    // Comment content
-                    Container(
-                      padding: EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Comment label
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.comment,
-                                size: 16,
+                    trailing: Text(
+                      _formatDate(commentItem.timestamp),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.textTheme.bodySmall?.color,
+                      ),
+                    ),
+                  ),
+              
+                  // Divider
+                  Divider(height: 1),
+              
+                  // Comment content
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Comment label
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.comment,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Your comment:',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
                                 color: Colors.amber,
                               ),
-                              SizedBox(width: 8),
-                              Text(
-                                'Your comment:',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.amber,
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          SizedBox(height: 12),
-
-                          // Comment text
-                          Container(
-                            padding: EdgeInsets.all(12),
-                            decoration: BoxDecoration(
+                            ),
+                          ],
+                        ),
+              
+                        SizedBox(height: 12),
+              
+                        // Comment text
+                        Container(
+                          padding: EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color:
+                                isDarkMode
+                                    ? Colors.grey[850]
+                                    : Colors.grey[100],
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
                               color:
                                   isDarkMode
-                                      ? Colors.grey[850]
-                                      : Colors.grey[100],
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color:
-                                    isDarkMode
-                                        ? Colors.grey[700]!
-                                        : Colors.grey[300]!,
-                              ),
-                            ),
-                            child: Text(
-                              commentItem.comment,
-                              style: theme.textTheme.bodyMedium,
+                                      ? Colors.grey[700]!
+                                      : Colors.grey[300]!,
                             ),
                           ),
-
-                          SizedBox(height: 16),
-
-                          // Read article button
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: ElevatedButton.icon(
-                              icon: Icon(Icons.article_outlined, size: 18),
-                              label: Text('View Article'),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (context) => DetailScreen(post: post),
-                                  ),
-                                );
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.primaryColor,
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                              ),
-                            ),
+                          child: Text(
+                            commentItem.comment,
+                            style: theme.textTheme.bodyMedium,
                           ),
-                        ],
-                      ),
+                        ),
+              
+                        SizedBox(height: 16),
+              
+                        // Read article button
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -391,15 +455,62 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
     final now = DateTime.now();
     final difference = now.difference(date);
 
-    if (difference.inDays == 0) {
-      if (difference.inHours == 0) {
-        return '${difference.inMinutes} min ago';
-      }
-      return '${difference.inHours} hours ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
+    // For very recent likes (less than a minute)
+    if (difference.inMinutes < 1) {
+      return 'just now';
+    }
+    // Within the last hour
+    else if (difference.inHours < 1) {
+      final minutes = difference.inMinutes;
+      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+    }
+    // Within the last day
+    else if (difference.inDays < 1) {
+      final hours = difference.inHours;
+      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+    }
+    // Within the last week
+    else if (difference.inDays < 7) {
+      final days = difference.inDays;
+      return '$days ${days == 1 ? 'day' : 'days'} ago';
+    }
+    // Within the current year
+    else if (date.year == now.year) {
+      // Format as "Jan 15" or "Oct 2"
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}';
+    }
+    // Older dates
+    else {
+      // Format as "Jan 15, 2024"
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}, ${date.year}';
     }
   }
 }

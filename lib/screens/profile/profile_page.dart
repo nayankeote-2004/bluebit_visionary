@@ -54,20 +54,46 @@ class _ProfilePageState extends State<ProfilePage> {
   Timer? _scrollTimer;
   final ScrollController _scrollController = ScrollController();
 
-  // Avatar customization options
-  List<String> avatarOptions = [
-    "https://via.placeholder.com/150/FF5722/FFFFFF",
-    "https://via.placeholder.com/150/2196F3/FFFFFF",
-    "https://via.placeholder.com/150/4CAF50/FFFFFF",
-    "https://via.placeholder.com/150/9C27B0/FFFFFF",
-    "https://via.placeholder.com/150/FFEB3B/000000",
+  // Avatar customization options - 2 male, 2 female
+  List<Map<String, dynamic>> avatarOptions = [
+    {
+      "asset": "assets/boy1.png",
+      "gender": "Male",
+      "isDefault": true,
+    },
+    {
+      "asset": "assets/boy2.png",
+      "gender": "Male",
+      "isDefault": false,
+    },
+    {
+      "asset": "assets/girl1.png",
+      "gender": "Female",
+      "isDefault": false,
+    },
+    {
+      "asset": "assets/girl2.png",
+      "gender": "Female",
+      "isDefault": false,
+    },
   ];
+
+  // Default avatar (first male avatar)
+  String selectedAvatarAsset = "assets/default.jpg";
+
+  // Key for storing avatar selection in SharedPreferences
+  final String _avatarKey = 'user_avatar';
 
   // Add loading state for interactions
   bool isLoadingInteractions = false;
 
   // Add to the top of the _ProfilePageState class
   final BookmarkService _bookmarkService = BookmarkService();
+
+  // Add these new variables to _ProfilePageState class
+  int _todayReadCount = 0;
+  final String _readCountKey = 'read_articles_count';
+  final String _readDateKey = 'read_articles_date';
 
   @override
   void initState() {
@@ -84,6 +110,12 @@ class _ProfilePageState extends State<ProfilePage> {
 
     // Load user data from SharedPreferences
     _loadUserData();
+
+    // Load today's read count
+    _loadReadCount();
+
+    // Load saved avatar
+    _loadSavedAvatar();
   }
 
   // Load user data from SharedPreferences
@@ -177,9 +209,77 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // Add this method to load the current read count
+  Future<void> _loadReadCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Get current date
+      final now = DateTime.now();
+      final today =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      // Check if the stored date matches today
+      final storedDate = prefs.getString(_readDateKey) ?? '';
+
+      if (storedDate == today) {
+        setState(() {
+          _todayReadCount = prefs.getInt(_readCountKey) ?? 0;
+        });
+      } else {
+        // If date doesn't match, it means we haven't read anything today yet
+        setState(() {
+          _todayReadCount = 0;
+        });
+
+        // Update the stored date
+        await prefs.setString(_readDateKey, today);
+        await prefs.setInt(_readCountKey, 0);
+      }
+    } catch (e) {
+      print('Error loading read count: $e');
+    }
+  }
+
+  // Add this method to load the saved avatar
+  Future<void> _loadSavedAvatar() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAvatar = prefs.getString(_avatarKey);
+
+      if (savedAvatar != null && savedAvatar.isNotEmpty) {
+        setState(() {
+          selectedAvatarAsset = savedAvatar;
+        });
+      } else {
+        // If no avatar is saved, set the default one
+        _saveAvatarSelection(
+          avatarOptions.firstWhere((avatar) => avatar["isDefault"])["asset"],
+        );
+      }
+    } catch (e) {
+      print('Error loading avatar: $e');
+    }
+  }
+
+  // Add this method to save the avatar selection
+  Future<void> _saveAvatarSelection(String avatarAsset) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_avatarKey, avatarAsset);
+
+      setState(() {
+        selectedAvatarAsset = avatarAsset;
+      });
+    } catch (e) {
+      print('Error saving avatar: $e');
+    }
+  }
+
   // Update the refresh to also refresh interactions
   Future<void> _refreshUserData() async {
     await _loadUserData();
+    await _loadReadCount();
   }
 
   // Add this method to update UI when theme changes from elsewhere
@@ -263,44 +363,188 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // Update the avatar customization dialog
   void _openAvatarCustomizationDialog() {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
     showDialog(
       context: context,
       builder:
-          (context) => AlertDialog(
-            title: Text('Customize Avatar'),
-            content: Container(
-              width: double.maxFinite,
-              child: GridView.builder(
-                shrinkWrap: true,
-                itemCount: avatarOptions.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                ),
-                itemBuilder: (context, index) {
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        avatarUrl = avatarOptions[index];
-                      });
-                      Navigator.of(context).pop();
-                    },
-                    child: CircleAvatar(
-                      backgroundImage: NetworkImage(avatarOptions[index]),
-                      radius: 30,
+          (context) => Dialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            elevation: 8,
+            backgroundColor: theme.cardColor,
+            child: Padding(
+              padding: EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Header
+                  Text(
+                    'Choose Your Avatar',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
-                  );
-                },
+                  ),
+
+                  SizedBox(height: 8),
+
+                  // Divider
+                  Container(
+                    width: 50,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: theme.primaryColor.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+
+                  SizedBox(height: 24),
+
+                  // Avatar Grid
+                  GridView.builder(
+                    shrinkWrap: true,
+                    itemCount: avatarOptions.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      mainAxisSpacing: 16,
+                      crossAxisSpacing: 16,
+                      childAspectRatio: 0.85,
+                    ),
+                    itemBuilder: (context, index) {
+                      final avatar = avatarOptions[index];
+                      final isSelected = selectedAvatarAsset == avatar["asset"];
+
+                      return GestureDetector(
+                        onTap: () => _saveAvatarSelection(avatar["asset"]),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Avatar with selection indicator
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Background circle with highlight for selected avatar
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color:
+                                          isSelected
+                                              ? theme.primaryColor
+                                              : Colors.transparent,
+                                      width: 3,
+                                    ),
+                                    boxShadow:
+                                        isSelected
+                                            ? [
+                                              BoxShadow(
+                                                color: theme.primaryColor
+                                                    .withOpacity(0.3),
+                                                blurRadius: 10,
+                                                spreadRadius: 2,
+                                              ),
+                                            ]
+                                            : null,
+                                  ),
+                                ),
+
+                                // Avatar image
+                                CircleAvatar(
+                                  radius: 35,
+                                  backgroundColor:
+                                      isDarkMode
+                                          ? Colors.black12
+                                          : Colors.grey.shade100,
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      avatar["asset"],
+                                      width: 70,
+                                      height: 70,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+
+                                // Selection check icon
+                                if (isSelected)
+                                  Positioned(
+                                    bottom: 0,
+                                    right: 0,
+                                    child: Container(
+                                      padding: EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: theme.primaryColor,
+                                        border: Border.all(
+                                          color: theme.cardColor,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+
+                            SizedBox(height: 8),
+
+                            // Gender label
+                            Text(
+                              avatar["gender"],
+                              style: TextStyle(
+                                color:
+                                    isSelected
+                                        ? theme.primaryColor
+                                        : theme.textTheme.bodyMedium?.color,
+                                fontWeight:
+                                    isSelected
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+
+                  SizedBox(height: 20),
+
+                  // Close button
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primaryColor,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 30,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                    ),
+                    child: Text(
+                      'Done',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text('Cancel'),
-              ),
-            ],
           ),
     );
   }
@@ -692,17 +936,32 @@ class _ProfilePageState extends State<ProfilePage> {
                               children: [
                                 CircleAvatar(
                                   radius: 60,
-                                  backgroundImage: NetworkImage(avatarUrl),
+                                  backgroundColor: theme.cardColor,
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      selectedAvatarAsset,
+                                      width: 120,
+                                      height: 120,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
                                 ),
                                 Container(
                                   decoration: BoxDecoration(
                                     color: theme.primaryColor,
                                     shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
                                   child: IconButton(
                                     icon: Icon(Icons.edit, color: Colors.white),
                                     onPressed: _openAvatarCustomizationDialog,
-                                    tooltip: 'Customize avatar',
+                                    tooltip: 'Change avatar',
                                   ),
                                 ),
                               ],
@@ -1014,19 +1273,30 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'Activity Stats',
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Activity Stats',
+                                  style: theme.textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                // Add refresh button for stats
+                                IconButton(
+                                  icon: Icon(Icons.refresh, size: 18),
+                                  onPressed: _loadReadCount,
+                                  tooltip: 'Refresh stats',
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                              ],
                             ),
                             SizedBox(height: 16),
 
-                            // Articles Read - sum of all interactions
+                            // Articles Read Today
                             _buildStatRow(
-                              'Articles Read',
-                              (likedCount + commentedCount + sharedCount)
-                                  .toString(),
+                              'Articles Read Today',
+                              '$_todayReadCount',
                               theme,
                             ),
                             SizedBox(height: 12),

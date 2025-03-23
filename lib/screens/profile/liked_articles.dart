@@ -3,9 +3,11 @@ import 'package:tik_tok_wikipidiea/config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
+import 'package:tik_tok_wikipidiea/models/post_content.dart';
 
 class LikedArticle {
-  final String articleId;
+  final int articleId;
   final String domain;
   final String articleTitle;
   final DateTime likedAt;
@@ -18,14 +20,118 @@ class LikedArticle {
   });
 
   factory LikedArticle.fromJson(Map<String, dynamic> json) {
+    DateTime parsedDate;
+    try {
+      if (json['likedAt'] != null) {
+        var likedAt = json['likedAt'];
+
+        // Case 1: Integer timestamp (milliseconds)
+        if (likedAt is int) {
+          parsedDate = DateTime.fromMillisecondsSinceEpoch(likedAt);
+        }
+        // Case 2: String representation
+        else if (likedAt is String) {
+          // Case 2a: Numeric string - could be seconds or milliseconds
+          if (RegExp(r'^\d+$').hasMatch(likedAt)) {
+            int timestamp = int.parse(likedAt);
+            // If it's likely seconds (Unix timestamp), convert to milliseconds
+            if (timestamp < 2000000000) {
+              parsedDate = DateTime.fromMillisecondsSinceEpoch(
+                timestamp * 1000,
+              );
+            } else {
+              parsedDate = DateTime.fromMillisecondsSinceEpoch(timestamp);
+            }
+          }
+          // Case 2b: Try parsing as ISO format
+          else {
+            try {
+              parsedDate = DateTime.parse(likedAt);
+            } catch (e) {
+              // Case 2c: Try HTTP date format (e.g., "Sun, 23 Mar 2025 12:15:40 GMT")
+              try {
+                // Example: "Sun, 23 Mar 2025 12:15:40 GMT"
+                final RegExp httpDatePattern = RegExp(
+                  r'^[A-Za-z]{3}, (\d{1,2}) ([A-Za-z]{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2}) GMT$',
+                );
+                final match = httpDatePattern.firstMatch(likedAt);
+
+                if (match != null) {
+                  final day = int.parse(match.group(1)!);
+                  final monthStr = match.group(2)!;
+                  final year = int.parse(match.group(3)!);
+                  final hour = int.parse(match.group(4)!);
+                  final minute = int.parse(match.group(5)!);
+                  final second = int.parse(match.group(6)!);
+
+                  // Convert month string to number
+                  final months = {
+                    'Jan': 1,
+                    'Feb': 2,
+                    'Mar': 3,
+                    'Apr': 4,
+                    'May': 5,
+                    'Jun': 6,
+                    'Jul': 7,
+                    'Aug': 8,
+                    'Sep': 9,
+                    'Oct': 10,
+                    'Nov': 11,
+                    'Dec': 12,
+                  };
+                  final month = months[monthStr] ?? 1;
+
+                  parsedDate = DateTime.utc(
+                    year,
+                    month,
+                    day,
+                    hour,
+                    minute,
+                    second,
+                  );
+                } else {
+                  throw FormatException('Not an HTTP date format');
+                }
+              } catch (httpError) {
+                print('HTTP date parsing failed for: $likedAt');
+
+                // Try MM/dd/yyyy format as before
+                try {
+                  var parts = likedAt.split('/');
+                  if (parts.length == 3) {
+                    parsedDate = DateTime(
+                      int.parse(parts[2]), // year
+                      int.parse(parts[0]), // month
+                      int.parse(parts[1]), // day
+                    );
+                  } else {
+                    throw FormatException('Unrecognized date format');
+                  }
+                } catch (e) {
+                  print('All date parsing attempts failed for: $likedAt');
+                  parsedDate = DateTime.now();
+                }
+              }
+            }
+          }
+        } else {
+          print('Unexpected likedAt type: ${likedAt.runtimeType}');
+          parsedDate = DateTime.now();
+        }
+      } else {
+        print('likedAt field is null');
+        parsedDate = DateTime.now();
+      }
+    } catch (e) {
+      print('Error parsing date: $e for value: ${json['likedAt']}');
+      parsedDate = DateTime.now();
+    }
+
     return LikedArticle(
       articleId: json['articleId'],
       domain: json['domain'],
       articleTitle: json['articleTitle'],
-      likedAt:
-          json['likedAt'] != null && json['likedAt']['\$date'] != null
-              ? DateTime.parse(json['likedAt']['\$date'])
-              : DateTime.now(),
+      likedAt: parsedDate,
     );
   }
 }
@@ -217,7 +323,7 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
               color: theme.cardColor,
               child: InkWell(
                 onTap: () {
-                  // Show details if needed in the future
+                  _fetchAndNavigateToArticleDetails(article);
                 },
                 child: Padding(
                   padding: EdgeInsets.all(16),
@@ -269,25 +375,6 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
                       ),
 
                       SizedBox(height: 16),
-
-                      // Unlike button
-                      OutlinedButton.icon(
-                        icon: Icon(Icons.favorite, color: Colors.red, size: 18),
-                        label: Text('Unlike'),
-                        onPressed:
-                            () => _unlikeArticle(
-                              article.articleId,
-                              article.domain,
-                            ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: BorderSide(color: Colors.red),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -303,19 +390,66 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
     final now = DateTime.now();
     final difference = now.difference(date);
 
-    if (difference.inDays == 0) {
-      if (difference.inHours == 0) {
-        return '${difference.inMinutes} min ago';
-      }
-      return '${difference.inHours} hours ago';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
+    // For very recent likes (less than a minute)
+    if (difference.inMinutes < 1) {
+      return 'just now';
+    }
+    // Within the last hour
+    else if (difference.inHours < 1) {
+      final minutes = difference.inMinutes;
+      return '$minutes ${minutes == 1 ? 'minute' : 'minutes'} ago';
+    }
+    // Within the last day
+    else if (difference.inDays < 1) {
+      final hours = difference.inHours;
+      return '$hours ${hours == 1 ? 'hour' : 'hours'} ago';
+    }
+    // Within the last week
+    else if (difference.inDays < 7) {
+      final days = difference.inDays;
+      return '$days ${days == 1 ? 'day' : 'days'} ago';
+    }
+    // Within the current year
+    else if (date.year == now.year) {
+      // Format as "Jan 15" or "Oct 2"
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}';
+    }
+    // Older dates
+    else {
+      // Format as "Jan 15, 2024"
+      final months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ];
+      return '${months[date.month - 1]} ${date.day}, ${date.year}';
     }
   }
 
-  Future<void> _unlikeArticle(String articleId, String domain) async {
+  Future<void> _unlikeArticle(int articleId, String domain) async {
     try {
       final baseUrl = Config.baseUrl;
 
@@ -350,6 +484,72 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to unlike article. Please try again.'),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _fetchAndNavigateToArticleDetails(
+    LikedArticle likedArticle,
+  ) async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return Center(child: CircularProgressIndicator());
+        },
+      );
+
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/domains/${likedArticle.domain}/articles/${likedArticle.articleId}',
+        ),
+      );
+
+      // Dismiss loading indicator
+      Navigator.pop(context);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final articleData = data['article'];
+
+        // Create Post object from the API response
+        final post = Post(
+          id: articleData['id'] ?? likedArticle.articleId,
+          title: articleData['title'] ?? likedArticle.articleTitle,
+          imageUrl: articleData['image_url'] ?? '',
+          summary: articleData['summary'] ?? '',
+          domain: articleData['domain'] ?? likedArticle.domain,
+          createdAt: articleData['created_at'] ?? '',
+          funFact: articleData['fun_fact'] ?? '',
+          readingTime: articleData['reading_time'] ?? 0,
+          relatedTopics: List<String>.from(articleData['related_topics'] ?? []),
+          sections:
+              (articleData['sections'] as List<dynamic>? ?? [])
+                  .map((section) => Section.fromJson(section))
+                  .toList(),
+          comments: List<String>.from(articleData['comments'] ?? []),
+          isLiked: true, // Since this is coming from liked articles
+        );
+
+        // Navigate to the detail screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => DetailScreen(post: post)),
+        );
+      } else {
+        throw Exception('Failed to load article details');
+      }
+    } catch (e) {
+      print('Error fetching article details: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load article details'),
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 2),
         ),
