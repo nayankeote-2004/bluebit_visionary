@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:tik_tok_wikipidiea/screens/home/infinite_scroll.dart';
 import 'package:tik_tok_wikipidiea/screens/profile/profile_page.dart';
+import 'package:tik_tok_wikipidiea/screens/search/search_screen.dart';
 
 class BottomNavBar extends StatefulWidget {
   const BottomNavBar({Key? key}) : super(key: key);
@@ -14,7 +15,7 @@ class _BottomNavBarState extends State<BottomNavBar> {
 
   static final List<Widget> _screens = [
     // Search Screen (placeholder)
-    Center(child: Text('Search Screen', style: TextStyle(fontSize: 24))),
+    Search_screen(),
     // Home Screen
     ScrollScreen(),
     // Profile Screen (placeholder)

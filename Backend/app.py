@@ -316,8 +316,8 @@ def login():
 
 @app.route('/populate-domains', methods=['POST'])
 def populate_domains():
-    domains = [ 
-        "Space", "Food"
+    domains = [
+        "Nature"
     ]
     
     results = {}
@@ -623,7 +623,6 @@ def share_article(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
-# ...existing code...
 @app.route('/user/<user_id>/interactions', methods=['GET'])
 def get_user_interactions(user_id):
     try:

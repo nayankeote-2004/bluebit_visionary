@@ -172,7 +172,7 @@ class _BookmarksPageState extends State<BookmarksPage> {
                         AspectRatio(
                           aspectRatio: 16 / 9,
                           child: Image.network(
-                            post.image,
+                            post.imageUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
@@ -213,7 +213,7 @@ class _BookmarksPageState extends State<BookmarksPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  post.source,
+                                  post.domain,
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
@@ -242,7 +242,7 @@ class _BookmarksPageState extends State<BookmarksPage> {
                         children: [
                           // Description
                           Text(
-                            post.description,
+                            post.summary,
                             style: theme.textTheme.bodyLarge?.copyWith(
                               fontSize: 16,
                               height: 1.4,
