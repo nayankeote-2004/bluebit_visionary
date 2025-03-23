@@ -10,10 +10,15 @@
 ## 📱 App Demo
 
 <div align="center">
-  <a href="https://youtu.be/your-video-id" target="_blank">
-    <img src="assets/video-thumbneil.png" alt="Wiki-Tok Demo Video" width="600"/>
-  </a>
-  <p><em>Click the image above to watch the demo video</em></p>
+  <div style="background: linear-gradient(135deg, #6e8efb, #a777e3); padding: 20px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.2); margin: 20px 0;">
+    <h3 style="color: white; font-weight: 700; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1.2px;">✨ WATCH THE DEMO ✨</h3>
+    <a href="https://drive.google.com/drive/folders/19Haq7_FkI4E9L8QZbTTBMY3jIJ9xlQws?usp=sharing" target="_blank">
+      <img src="assets/video-thumbneil.png" alt="Wiki-Tok Demo Video" width="680" style="border-radius: 8px; border: 3px solid white; transition: transform 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"/>
+    </a>
+    <p style="background-color: rgba(255,255,255,0.9); color: #333; font-size: 16px; font-weight: 600; padding: 12px 20px; border-radius: 30px; display: inline-block; margin-top: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+      <span style="color: #6e8efb;">▶️</span> <em>Click to experience Wiki-Tok in action!</em> <span style="color: #a777e3;">🔥</span>
+    </p>
+  </div>
 </div>
 
 ## 🖼️ UI Showcase
