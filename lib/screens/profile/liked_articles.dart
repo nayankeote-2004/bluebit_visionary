@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class LikedArticle {
-  final int articleId;
+  final String articleId;
   final String domain;
   final String articleTitle;
   final DateTime likedAt;
@@ -68,7 +68,7 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
               .toList();
 
       // Sort by most recent first
-      articles.sort((a, b) => b.likedAt.compareTo(a.likedAt));
+      //articles.sort((a, b) => b.likedAt.compareTo(a.likedAt));
 
       setState(() {
         isLoading = false;
@@ -315,7 +315,7 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
     }
   }
 
-  Future<void> _unlikeArticle(int articleId, String domain) async {
+  Future<void> _unlikeArticle(String articleId, String domain) async {
     try {
       final baseUrl = Config.baseUrl;
 

@@ -1030,9 +1030,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               theme,
                             ),
                             SizedBox(height: 12),
-
-
-                         ],
+                          ],
                         ),
                       ),
                     ),
@@ -1103,6 +1101,7 @@ class _ProfilePageState extends State<ProfilePage> {
       onTap: () {
         // Navigate based on which stat was clicked
         if (label == 'Liked') {
+          print(userInteractions);
           Navigator.push(
             context,
             MaterialPageRoute(
