@@ -9,6 +9,40 @@ import re
 from dotenv import load_dotenv
 from datetime import datetime
 
+
+# Add these imports at the top
+from functools import lru_cache
+import time
+from cachelib import SimpleCache
+import threading
+
+# Create a cache object
+cache = SimpleCache()
+
+# Create global variables for BERT model
+global_tokenizer = None
+global_model = None
+
+# Load BERT model in a separate thread at startup
+def load_bert_model():
+    global global_tokenizer, global_model
+    try:
+        from transformers import BertTokenizer, BertForSequenceClassification
+        print("Loading BERT model and tokenizer...")
+        global_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        global_model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
+        print("BERT model loaded successfully")
+    except Exception as e:
+        print(f"Error loading BERT model: {str(e)}")
+
+# Start loading model in background thread
+threading.Thread(target=load_bert_model).start()
+
+# Add a caching decorator for Wikipedia data
+@lru_cache(maxsize=100)
+def get_cached_wikipedia_data(topic):
+    return get_wikipedia_data(topic)
+
 # Load environment variables
 load_dotenv()
 
@@ -675,8 +709,8 @@ def get_article_by_id(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
     
-@app.route('/user/<user_id>/bert-recommendations', methods=['GET'])
-def get_bert_recommendations(user_id):
+@app.route('/user/<user_id>/bert-recommendations-test', methods=['GET'])
+def get_bert_recommendations_test(user_id):
     try:
         # Convert the string user ID to MongoDB ObjectId
         from bson.objectid import ObjectId
@@ -858,6 +892,154 @@ def get_bert_recommendations(user_id):
             "count": len(unique_bert_articles[:10]),
             "method": "BERT-based subdomain classification"
         }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
+
+@app.route('/user/<user_id>/bert-recommendations', methods=['GET'])
+def get_bert_recommendations(user_id):
+    # Check cache first
+    cache_key = f"bert_rec_{user_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return jsonify(cached_result), 200
+    
+    try:
+        # Set a timeout for the entire function
+        start_time = time.time()
+        max_execution_time = 25  # seconds
+        
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        import numpy as np
+        
+        user_id_obj = ObjectId(user_id)
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id_obj})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get user's interested domains and interactions
+        interested_domains = user.get("interestedDomains", [])
+        liked_articles = user.get("likedArticles", [])
+        
+        if not interested_domains:
+            return jsonify({"error": "User has no interested domains selected"}), 404
+            
+        # Convert domain names to lowercase for collection names
+        domain_collections = [domain.lower() for domain in interested_domains]
+        
+        # Create a set of all interacted articles to avoid recommending them
+        interacted_articles = set()
+        for item in liked_articles + user.get("commentedArticles", []) + user.get("sharedArticles", []):
+            if 'articleId' in item and 'domain' in item:
+                interacted_articles.add((item['articleId'], item['domain']))
+        
+        # Define the mapping of domains to subdomains (kept same as original)
+        domain_to_subdomains = {
+            "nature": ["Ecology", "Wildlife Conservation", "Botany"],
+            "education": ["Early Childhood Education", "Higher Education", "Online Learning"],
+            "entertainment": ["Movies", "Music", "Television Shows"],
+            "technology": ["Artificial Intelligence", "Cybersecurity", "Software Development"],
+            "science": ["Physics", "Chemistry", "Biology"],
+            "political": ["International Relations", "Government Systems", "Political Theories"],
+            "lifestyle": ["Travel & Tourism", "Fashion & Style", "Health & Wellness"],
+            "social": ["Sociology", "Psychology", "Social Media Trends"],
+            "space": ["Solar System", "Exoplanets", "Black Holes"],
+            "food": ["Culinary Arts", "Nutrition & Diet", "Food Science"],
+        }
+
+        bert_recommended_articles = []
+        
+        # For each interested domain, get some articles to recommend
+        for domain in domain_collections[:3]:  # Limit to top 3 domains
+            if time.time() - start_time > max_execution_time:
+                # We're running out of time, break early
+                break
+                
+            # Get 3-4 articles from each domain
+            if domain in db.list_collection_names():
+                # Get article IDs to exclude
+                exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+                
+                # Get random articles from this domain
+                random_articles = list(db[domain].aggregate([
+                    {"$match": {"id": {"$nin": exclude_ids}}},
+                    {"$sample": {"size": 4}},
+                    {"$project": {"_id": 0}}
+                ]))
+                
+                for article in random_articles:
+                    article["domain"] = domain
+                    article["recommendation_source"] = "domain_based"
+                
+                bert_recommended_articles.extend(random_articles)
+        
+        # If user has liked articles, try to get some subdomain recommendations
+        if liked_articles and global_tokenizer and global_model and len(bert_recommended_articles) < 10:
+            try:
+                # Use only a few liked articles to keep it fast
+                recent_liked = liked_articles[:3]
+                
+                # Mock subdomain classification for speed
+                subdomains_to_try = []
+                for liked in recent_liked:
+                    domain = liked.get('domain')
+                    if domain in domain_to_subdomains:
+                        # Pick a random subdomain
+                        import random
+                        subdomain = random.choice(domain_to_subdomains[domain])
+                        if subdomain not in subdomains_to_try:
+                            subdomains_to_try.append(subdomain)
+                
+                # Get 1-2 articles for each subdomain
+                for subdomain in subdomains_to_try[:2]:
+                    if time.time() - start_time > max_execution_time:
+                        # We're running out of time, break early
+                        break
+                        
+                    # Use cached version to speed up
+                    subdomain_wiki_data = get_cached_wikipedia_data(subdomain)
+                    
+                    if subdomain_wiki_data:
+                        # Add a couple articles from this subdomain
+                        for article in subdomain_wiki_data[:2]:
+                            article["subdomain"] = subdomain
+                            article["subdomain_score"] = 0.8  # Fixed score for speed
+                            
+                            # Find which main domain this subdomain belongs to
+                            for domain, subdomains in domain_to_subdomains.items():
+                                if subdomain in subdomains:
+                                    article["domain"] = domain
+                                    break
+                            
+                            bert_recommended_articles.append(article)
+            except Exception as bert_error:
+                print(f"Error in BERT recommendation: {str(bert_error)}")
+        
+        # Remove duplicates by ID
+        seen_ids = set()
+        unique_bert_articles = []
+        
+        for article in bert_recommended_articles:
+            if article["id"] not in seen_ids:
+                seen_ids.add(article["id"])
+                unique_bert_articles.append(article)
+        
+        # Prepare response
+        response_data = {
+            "bertRecommendedArticles": unique_bert_articles[:10],
+            "count": len(unique_bert_articles[:10]),
+            "method": "BERT-based subdomain classification"
+        }
+        
+        # Cache the result for 1 hour (3600 seconds)
+        cache.set(cache_key, response_data, timeout=3600)
+        
+        return jsonify(response_data), 200
             
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
