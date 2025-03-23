@@ -7,6 +7,42 @@
 
 **Wiki-Tok** is an innovative cross-platform mobile application that combines the power of Wikipedia's vast knowledge base with social media engagement features, creating an immersive and interactive knowledge-sharing experience enhanced by AI.
 
+## 📱 App Demo
+
+<div align="center">
+  <a href="https://youtu.be/your-video-id" target="_blank">
+    <img src="assets/video-thumbneil.png" alt="Wiki-Tok Demo Video" width="600"/>
+  </a>
+  <p><em>Click the image above to watch the demo video</em></p>
+</div>
+
+## 🖼️ UI Showcase
+
+<div align="center">
+  <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot1.jpg" alt="Home Feed" width="220"/>
+      <p><strong>Home Feed</strong> - Infinite scrolling with AI-curated content</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot2.jpg" alt="Article View" width="220"/>
+      <p><strong>Article Fun Fact Audio</strong> - Immersive Fun Fact and reading experience with audio</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot3.jpg" alt="Search & Explore" width="220"/>
+      <p><strong>Search & Explore</strong> - Discover new knowledge</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot4.jpg" alt="User Profile" width="220"/>
+      <p><strong>User Profile</strong> - Achievements and reading stats</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot5.jpg" alt="User Profile" width="220"/>
+      <p><strong>Treanding Articles</strong> - Treading Articles on the basis of Likes , Share and Comments</p>
+    </div>
+  </div>
+</div>
+
 ## Table of Contents
 
 - [Features](#features)
