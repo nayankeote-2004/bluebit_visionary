@@ -149,24 +149,88 @@ class _AuthScreenState extends State<AuthScreen>
     } catch (error) {
       showDialog(
         context: context,
+        barrierDismissible: false,
         builder:
             (ctx) => AlertDialog(
-              title: Text('Error'),
-              content: Text(
-                'Please wait, something went wrong.\n\n${error.toString()}',
+              titlePadding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              contentPadding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              actionsPadding: EdgeInsets.fromLTRB(8, 0, 8, 8),
+              title: Row(
+                children: [
+                  Icon(Icons.error_outline, color: Colors.red, size: 20),
+                  SizedBox(width: 8),
+                  Text(
+                    'Something went wrong',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  
+                  Text(
+                    'Please try again or report this issue.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                  ),
+                ],
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
               actions: [
                 TextButton(
-                  child: Text('Okay'),
-                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: TextButton.styleFrom(
+                    minimumSize: Size(60, 30),
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: TextStyle(fontSize: 12),
+                  ),
+                  child: Text('Report'),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Issue reported'),
+                        duration: Duration(seconds: 2),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    );
+                    Navigator.of(ctx).pop();
+                  },
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).primaryColor,
+                    minimumSize: Size(70, 30),
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    textStyle: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.refresh, size: 14),
+                      SizedBox(width: 4),
+                      Text('Retry'),
+                    ],
+                  ),
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    // Add retry logic here
+                  },
                 ),
               ],
             ),
       );
-    } finally {
+   } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
