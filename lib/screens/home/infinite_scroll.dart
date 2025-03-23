@@ -25,6 +25,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
   bool isLoading = true;
   String? userId;
 
+  // Add pagination variables
+  int _currentPage = 1;
+  final int _postsPerPage = 10;
+  bool _hasMorePosts = true;
+  bool _isLoadingMore = false;
+
   // Keys for SharedPreferences storage
   final String _readArticlesKey = 'read_articles_today';
   final String _readDateKey = 'read_articles_date';
@@ -103,163 +109,124 @@ class _ScrollScreenState extends State<ScrollScreen> {
     _updateAutoScroll();
   }
 
-  // Add this helper method to the _ScrollScreenState class for showing error SnackBars
-  void _showErrorSnackbar(String errorMessage) {
-    if (mounted && context != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please wait, something went wrong.'),
-          backgroundColor: Colors.red[700],
-          behavior: SnackBarBehavior.floating,
-          duration: Duration(seconds: 3),
-          action: SnackBarAction(
-            label: 'Retry',
-            textColor: Colors.white,
-            onPressed: () => _refreshPosts(),
-          ),
+  // Initialize article read tracking data
+  Future<void> _loadReadArticlesData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Get the current date in yyyy-MM-dd format
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    _currentDate = today;
+
+    // Check if we need to reset the count (new day)
+    final storedDate = prefs.getString(_readDateKey) ?? '';
+
+    if (storedDate != today) {
+      // New day, reset everything
+      await prefs.setString(_readDateKey, today);
+      await prefs.setInt(_readCountKey, 0);
+      await prefs.setStringList(_readArticlesKey, []);
+
+      _todayReadCount = 0;
+      _readArticleIds = {};
+    } else {
+      // Same day, load existing data
+      _todayReadCount = prefs.getInt(_readCountKey) ?? 0;
+      _readArticleIds = (prefs.getStringList(_readArticlesKey) ?? []).toSet();
+    }
+  }
+
+  // Save read article data to SharedPreferences
+  Future<void> _saveReadArticlesData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_readCountKey, _todayReadCount);
+    await prefs.setStringList(_readArticlesKey, _readArticleIds.toList());
+
+    // Also check if date needs updating
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    if (_currentDate != today) {
+      _currentDate = today;
+      await prefs.setString(_readDateKey, today);
+
+      // Reset counters for the new day
+      _todayReadCount = 0;
+      _readArticleIds = {};
+      await prefs.setInt(_readCountKey, 0);
+      await prefs.setStringList(_readArticlesKey, []);
+    }
+  }
+
+  // Mark an article as read and increment today's count
+  Future<void> _markArticleAsRead(Post post) async {
+    if (!_readArticleIds.contains(post.id.toString())) {
+      setState(() {
+        _readArticleIds.add(post.id.toString());
+        _todayReadCount++;
+      });
+      await _saveReadArticlesData();
+    }
+  }
+
+  // Initialize text-to-speech
+  Future<void> _initTts() async {
+    flutterTts = FlutterTts();
+
+    await flutterTts.setLanguage("en-US");
+    await flutterTts.setSpeechRate(0.5);
+    await flutterTts.setVolume(1.0);
+    await flutterTts.setPitch(1.0);
+
+    // Add completion listener
+    flutterTts.setCompletionHandler(() {
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+    });
+
+    // Add error listener
+    flutterTts.setErrorHandler((msg) {
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+      print("TTS Error: $msg");
+    });
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    userId = prefs.getString('userId');
+    if (userId != null) {
+      // Reset pagination when initially loading
+      _currentPage = 1;
+      _hasMorePosts = true;
+      await _fetchRecommendedArticles();
+    }
+  }
+
+  Future<void> _fetchRecommendedArticles() async {
+    if (!_hasMorePosts) return;
+
+    try {
+      setState(() {
+        if (_currentPage == 1) {
+          isLoading = true;
+        } else {
+          _isLoadingMore = true;
+        }
+      });
+
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
         ),
       );
-      // Log the detailed error for debugging
-      print('Error details: $errorMessage');
-    }
-  }
-
-  // Wrap _loadUserData with try-catch
-  Future<void> _loadUserData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      userId = prefs.getString('userId');
-      if (userId != null) {
-        await _fetchRecommendedArticles();
-      } else {
-        throw Exception('User ID not found');
-      }
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-      setState(() {
-        isLoading = false;
-      });
-    }
-  }
-
-  // Wrap _initTts with try-catch
-  Future<void> _initTts() async {
-    try {
-      flutterTts = FlutterTts();
-
-      await flutterTts.setLanguage("en-US");
-      await flutterTts.setSpeechRate(0.5);
-      await flutterTts.setVolume(1.0);
-      await flutterTts.setPitch(1.0);
-
-      // Add completion listener
-      flutterTts.setCompletionHandler(() {
-        setState(() {
-          isSpeaking = false;
-          currentSpeakingPostId = null;
-        });
-      });
-
-      // Add error listener
-      flutterTts.setErrorHandler((msg) {
-        setState(() {
-          isSpeaking = false;
-          currentSpeakingPostId = null;
-        });
-        print("TTS Error: $msg");
-      });
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-      print("TTS initialization error: $error");
-    }
-  }
-
-  // Wrap _loadReadArticlesData with try-catch
-  Future<void> _loadReadArticlesData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Get the current date in yyyy-MM-dd format
-      final now = DateTime.now();
-      final today =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-      _currentDate = today;
-
-      // Check if we need to reset the count (new day)
-      final storedDate = prefs.getString(_readDateKey) ?? '';
-
-      if (storedDate != today) {
-        // New day, reset everything
-        await prefs.setString(_readDateKey, today);
-        await prefs.setInt(_readCountKey, 0);
-        await prefs.setStringList(_readArticlesKey, []);
-
-        _todayReadCount = 0;
-        _readArticleIds = {};
-      } else {
-        // Same day, load existing data
-        _todayReadCount = prefs.getInt(_readCountKey) ?? 0;
-        _readArticleIds = (prefs.getStringList(_readArticlesKey) ?? []).toSet();
-      }
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-    }
-  }
-
-  // Wrap _saveReadArticlesData with try-catch
-  Future<void> _saveReadArticlesData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_readCountKey, _todayReadCount);
-      await prefs.setStringList(_readArticlesKey, _readArticleIds.toList());
-
-      // Also check if date needs updating
-      final now = DateTime.now();
-      final today =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
-      if (_currentDate != today) {
-        _currentDate = today;
-        await prefs.setString(_readDateKey, today);
-
-        // Reset counters for the new day
-        _todayReadCount = 0;
-        _readArticleIds = {};
-        await prefs.setInt(_readCountKey, 0);
-        await prefs.setStringList(_readArticlesKey, []);
-      }
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-    }
-  }
-
-  // Wrap _markArticleAsRead with try-catch
-  Future<void> _markArticleAsRead(Post post) async {
-    try {
-      if (!_readArticleIds.contains(post.id.toString())) {
-        setState(() {
-          _readArticleIds.add(post.id.toString());
-          _todayReadCount++;
-        });
-        await _saveReadArticlesData();
-      }
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-    }
-  }
-
-  // Wrap _fetchRecommendedArticles with try-catch
-  Future<void> _fetchRecommendedArticles() async {
-    try {
-      final baseUrl = Config.baseUrl;
-      final response = await http
-          .get(Uri.parse('$baseUrl/user/$userId/standard-recommendations'))
-          .timeout(
-            Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('Connection timed out. Please try again.');
-            },
-          );
 
       if (response.statusCode == 200) {
         final List<dynamic> articlesJson =
@@ -273,16 +240,32 @@ class _ScrollScreenState extends State<ScrollScreen> {
         final sortedPosts = _sortPostsByDomain(fetchedPosts);
 
         setState(() {
-          posts = sortedPosts;
+          if (_currentPage == 1) {
+            // For the first page, replace the list
+            posts = sortedPosts;
+          } else {
+            // For subsequent pages, append to the list
+            posts.addAll(sortedPosts);
+          }
+
+          // Check if we've reached the end
+          _hasMorePosts = sortedPosts.length >= _postsPerPage;
+          _currentPage++;
           isLoading = false;
+          _isLoadingMore = false;
         });
       } else {
-        throw Exception('Failed to load articles: ${response.statusCode}');
+        setState(() {
+          isLoading = false;
+          _isLoadingMore = false;
+        });
+        throw Exception('Failed to load articles');
       }
     } catch (error) {
-      _showErrorSnackbar(error.toString());
+      print('Error fetching articles: $error');
       setState(() {
         isLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
@@ -386,49 +369,42 @@ class _ScrollScreenState extends State<ScrollScreen> {
     _currentIndex = index;
   }
 
-  // Add try-catch to the existing _recordReadingTime method
+  // Updated method to check for articles read more than 7 seconds
   void _recordReadingTime() async {
-    try {
-      if (_pageViewStartTime != null && _currentIndex < posts.length) {
-        final duration = DateTime.now().difference(_pageViewStartTime!);
+    if (_pageViewStartTime != null && _currentIndex < posts.length) {
+      final duration = DateTime.now().difference(_pageViewStartTime!);
 
-        // Add to existing time if already viewed this post
-        if (_readingTimes.containsKey(_currentIndex)) {
-          _readingTimes[_currentIndex] =
-              _readingTimes[_currentIndex]! + duration;
-        } else {
-          _readingTimes[_currentIndex] = duration;
-        }
-
-        // Check if the post has been read for more than 7 seconds
-        if (_readingTimes[_currentIndex]!.inSeconds > 7) {
-          final post = posts[_currentIndex];
-          await _markArticleAsRead(post);
-        }
-
-        print(
-          '====================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
-        );
+      // Add to existing time if already viewed this post
+      if (_readingTimes.containsKey(_currentIndex)) {
+        _readingTimes[_currentIndex] = _readingTimes[_currentIndex]! + duration;
+      } else {
+        _readingTimes[_currentIndex] = duration;
       }
 
-      // Check if we need to reset counters (day changed)
-      final now = DateTime.now();
-      final today =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
-      if (_currentDate != today) {
-        await _loadReadArticlesData(); // This will reset counters if needed
+      // Check if the post has been read for more than 7 seconds
+      if (_readingTimes[_currentIndex]!.inSeconds > 7) {
+        final post = posts[_currentIndex];
+        await _markArticleAsRead(post);
       }
-    } catch (error) {
-      print('Error recording reading time: $error');
-      // Don't show a snackbar here as this is a background operation
+
+      print(
+        '====================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
+      );
+    }
+
+    // Check if we need to reset counters (day changed)
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    if (_currentDate != today) {
+      await _loadReadArticlesData(); // This will reset counters if needed
     }
   }
 
-  // Wrap _toggleLike with try-catch
+  // Updated to change UI first, then send request
   Future<void> _toggleLike(Post post) async {
     // Update UI immediately
-    final previousState = post.isLiked;
     setState(() {
       post.isLiked = !post.isLiked;
     });
@@ -436,90 +412,84 @@ class _ScrollScreenState extends State<ScrollScreen> {
     // Then send request to backend
     try {
       final baseUrl = Config.baseUrl;
-      final response = await http
-          .post(
-            Uri.parse(
-              '$baseUrl/domains/${post.domain}/articles/${post.id}/like/$userId',
-            ),
-            headers: {'Content-Type': 'application/json'},
-          )
-          .timeout(
-            Duration(seconds: 10),
-            onTimeout: () {
-              throw TimeoutException('Connection timed out. Please try again.');
-            },
-          );
+      final response = await http.post(
+        Uri.parse(
+          '$baseUrl/domains/${post.domain}/articles/${post.id}/like/$userId',
+        ),
+        headers: {'Content-Type': 'application/json'},
+      );
 
       if (response.statusCode != 200) {
         // Revert if the request fails
         setState(() {
-          post.isLiked = previousState;
+          post.isLiked = !post.isLiked;
         });
-        throw Exception('Failed to toggle like: ${response.statusCode}');
+        throw Exception('Failed to toggle like');
       }
     } catch (error) {
-      _showErrorSnackbar(error.toString());
-      // Revert state if not already handled
-      setState(() {
-        post.isLiked = previousState;
-      });
+      print('Error toggling like: $error');
+      // Already reverted the state above if needed
     }
   }
 
-  // Wrap _refreshPosts with try-catch
+  // Replace _shufflePosts with refresh method
   Future<void> _refreshPosts() async {
-    try {
-      setState(() {
-        isLoading = true;
-      });
-      await _fetchPosts();
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-      setState(() {
-        isLoading = false;
-      });
-    }
+    _currentPage = 1;
+    _hasMorePosts = true;
+    setState(() {
+      isLoading = true;
+    });
+    await _fetchRecommendedArticles();
   }
 
-  // Wrap _addComment with try-catch
+  // Add this function to the _ScrollScreenState class
   Future<void> _addComment(Post post, String commentText) async {
     try {
       final baseUrl = Config.baseUrl;
-      final response = await http
-          .post(
-            Uri.parse(
-              '$baseUrl/domains/${post.domain}/articles/${post.id}/comment',
-            ),
-            headers: {'Content-Type': 'application/json'},
-            body: json.encode({'userId': userId, 'comment': commentText}),
-          )
-          .timeout(
-            Duration(seconds: 10),
-            onTimeout: () {
-              throw TimeoutException('Connection timed out. Please try again.');
-            },
-          );
+      final response = await http.post(
+        Uri.parse(
+          '$baseUrl/domains/${post.domain}/articles/${post.id}/comment',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId':
+              userId, // Make sure this matches the API expectation (user_id not userId)
+          'comment': commentText, // Use text instead of comment
+        }),
+      );
 
       if (response.statusCode == 200) {
-        setState(() {
-          post.comments.add(commentText);
-        });
+        // Close the current comments sheet
+        Navigator.pop(context);
 
+        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Comment added successfully'),
             backgroundColor: Colors.green,
           ),
         );
+
+        // Reopen comments to refresh the list
+        Future.delayed(Duration(milliseconds: 300), () {
+          _showComments(post);
+        });
       } else {
-        throw Exception('Failed to add comment: ${response.statusCode}');
+        throw Exception('Failed to add comment');
       }
     } catch (error) {
-      _showErrorSnackbar(error.toString());
+      print('Error adding comment: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to add comment'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
-  // Update the _showComments method to fix the overflow issue
+  // Replace your existing _showComments method with this updated version:
+
   void _showComments(Post post) {
     final TextEditingController commentController = TextEditingController();
 
@@ -540,10 +510,21 @@ class _ScrollScreenState extends State<ScrollScreen> {
               ),
               child: Column(
                 children: [
-                  // Flexible wrapper for the comments list to allow it to resize
+                  // Drag handle
+                  Container(
+                    margin: EdgeInsets.only(top: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[400],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+
+                  // Dynamic comments widget
                   Expanded(child: CommentsSheet(post: post)),
 
-                  // Fixed-height comment input area
+                  // Comment input area
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
@@ -562,7 +543,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                             controller: commentController,
                             decoration: InputDecoration(
                               hintText: 'Add a comment...',
-                              isDense: true, // Reduces the overall height
+                              isDense: true,
                               contentPadding: EdgeInsets.symmetric(
                                 horizontal: 16,
                                 vertical: 8,
@@ -571,16 +552,16 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                 borderRadius: BorderRadius.circular(20),
                               ),
                             ),
-                            maxLines: 1, // Restrict to single line
+                            maxLines: 1,
                           ),
                         ),
                         IconButton(
                           icon: Icon(Icons.send),
+                          color: Theme.of(context).primaryColor,
                           onPressed: () async {
                             if (commentController.text.isNotEmpty) {
                               await _addComment(post, commentController.text);
                               commentController.clear();
-                              Navigator.pop(context);
                             }
                           },
                         ),
@@ -594,204 +575,150 @@ class _ScrollScreenState extends State<ScrollScreen> {
     );
   }
 
-  // Wrap _readArticle with try-catch
+  // Updated method to handle text-to-speech functionality without snackbar
   Future<void> _readArticle(Post post) async {
-    try {
-      HapticFeedback.mediumImpact(); // Add haptic feedback
+    HapticFeedback.mediumImpact(); // Add haptic feedback
 
-      // If already speaking the same post, stop it
-      if (isSpeaking && currentSpeakingPostId == post.id.toString()) {
-        await flutterTts.stop();
-        setState(() {
-          isSpeaking = false;
-          currentSpeakingPostId = null;
-        });
-        return;
-      }
-
-      // If speaking a different post, stop that first
-      if (isSpeaking) {
-        await flutterTts.stop();
-        setState(() {
-          isSpeaking = false;
-          currentSpeakingPostId = null;
-        });
-      }
-
-      // Prepare text to speak
-      String textToSpeak = "Title: ${post.title}. ${post.summary}";
-
-      // Start speaking without showing a snackbar
-      await flutterTts.speak(textToSpeak);
+    // If already speaking the same post, stop it
+    if (isSpeaking && currentSpeakingPostId == post.id.toString()) {
+      await flutterTts.stop();
       setState(() {
-        isSpeaking = true;
-        currentSpeakingPostId = post.id.toString();
+        isSpeaking = false;
+        currentSpeakingPostId = null;
       });
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
+      return;
     }
+
+    // If speaking a different post, stop that first
+    if (isSpeaking) {
+      await flutterTts.stop();
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+    }
+
+    // Prepare text to speak
+    String textToSpeak = "Title: ${post.title}. ${post.summary}";
+
+    // Start speaking without showing a snackbar
+    await flutterTts.speak(textToSpeak);
+    setState(() {
+      isSpeaking = true;
+      currentSpeakingPostId = post.id.toString();
+    });
   }
 
   // Update the build method to handle loading state
   @override
   Widget build(BuildContext context) {
-    try {
-      // Get theme brightness to adapt UI accordingly
-      final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-      final theme = Theme.of(context);
+    // Get theme brightness to adapt UI accordingly
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
 
-      if (isLoading) {
-        return Scaffold(
-          appBar: AppBar(title: Text("TikTok Wikipedia")),
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  "Loading your personalized content...",
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-
-      return Scaffold(
-        appBar: AppBar(
-          backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
-          elevation: Theme.of(context).appBarTheme.elevation,
-          title: Text(
-            "TikTok Wikipedia",
-            style: Theme.of(context).appBarTheme.titleTextStyle,
-          ),
-          centerTitle: true,
-          // Show auto-scroll indicator when enabled
-          actions: [
-            if (_autoScrollService.enabled)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  children: [
-                    Icon(Icons.av_timer, size: 18),
-                    SizedBox(width: 4),
-                    Text(
-                      "${_autoScrollService.intervalSeconds}s",
-                      style: TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-        body: RefreshIndicator(
-          onRefresh: _refreshPosts,
-          child:
-              posts.isEmpty
-                  ? Center(
-                    child: Text(
-                      "No articles found. Pull down to refresh.",
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  )
-                  : PageView.builder(
-                    controller: _pageController,
-                    scrollDirection: Axis.vertical,
-                    physics:
-                        const BouncingScrollPhysics(), // Smoother scrolling
-                    itemCount: posts.length,
-                    onPageChanged: (index) {
-                      try {
-                        // Stop any ongoing TTS when changing pages
-                        if (isSpeaking) {
-                          flutterTts.stop();
-                          setState(() {
-                            isSpeaking = false;
-                            currentSpeakingPostId = null;
-                          });
-                        }
-
-                        // Record time for previous page and start timer for new page
-                        _recordReadingTime();
-                        _startTrackingTime(index);
-                      } catch (error) {
-                        print('Error on page change: $error');
-                      }
-                    },
-                    itemBuilder: (context, index) {
-                      try {
-                        final post = posts[index];
-                        return _buildEnhancedCard(
-                          post,
-                          context,
-                          isDarkMode,
-                          theme,
-                        );
-                      } catch (error) {
-                        // Provide a fallback card on error
-                        return Card(
-                          margin: EdgeInsets.all(16),
-                          child: Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Text(
-                                "Please wait, something went wrong while loading this content.",
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-        ),
-      );
-    } catch (error) {
-      // Fallback UI in case the entire build fails
+    if (isLoading && _currentPage == 1) {
       return Scaffold(
         appBar: AppBar(title: Text("TikTok Wikipedia")),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 56, color: Colors.red),
-              SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Text(
-                  "Please wait, something went wrong.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  try {
-                    setState(() {
-                      isLoading = true;
-                    });
-                    _refreshPosts();
-                  } catch (e) {
-                    print("Error during refresh: $e");
-                  }
-                },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  child: Text("Retry"),
-                ),
-              ),
-            ],
-          ),
+        body: ListView.builder(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          itemCount: 5, // Show multiple skeleton cards
+          itemBuilder: (context, index) {
+            return _buildSkeletonCard(context);
+          },
         ),
       );
     }
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
+        elevation: Theme.of(context).appBarTheme.elevation,
+        title: Text(
+          "TikTok Wikipedia",
+          style: Theme.of(context).appBarTheme.titleTextStyle,
+        ),
+        centerTitle: true,
+        // Show auto-scroll indicator when enabled
+        actions: [
+          if (_autoScrollService.enabled)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                children: [
+                  Icon(Icons.av_timer, size: 18),
+                  SizedBox(width: 4),
+                  Text(
+                    "${_autoScrollService.intervalSeconds}s",
+                    style: TextStyle(fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refreshPosts,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (ScrollNotification scrollInfo) {
+            // Check if we're near the end of the list to load more posts
+            if (scrollInfo is ScrollEndNotification) {
+              if (_pageController.page != null &&
+                  _pageController.page! >= posts.length - 3 &&
+                  !_isLoadingMore &&
+                  _hasMorePosts) {
+                _loadMorePosts();
+              }
+            }
+            return false;
+          },
+          child: PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            physics: const BouncingScrollPhysics(),
+            itemCount: _hasMorePosts ? posts.length + 1 : posts.length,
+            onPageChanged: (index) {
+              // Stop any ongoing TTS when changing pages
+              if (isSpeaking) {
+                flutterTts.stop();
+                setState(() {
+                  isSpeaking = false;
+                  currentSpeakingPostId = null;
+                });
+              }
+
+              // Record time for previous page and start timer for new page
+              _recordReadingTime();
+
+              // Check if we need to load more posts
+              if (index >= posts.length - 3 &&
+                  !_isLoadingMore &&
+                  _hasMorePosts) {
+                _loadMorePosts();
+              }
+
+              // Only track time for valid indices
+              if (index < posts.length) {
+                _startTrackingTime(index);
+              }
+            },
+            itemBuilder: (context, index) {
+              // Show a loading indicator at the end if more posts can be loaded
+              if (index >= posts.length) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+
+              final post = posts[index];
+              return _buildEnhancedCard(post, context, isDarkMode, theme);
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildEnhancedCard(
@@ -1228,233 +1155,227 @@ class _ScrollScreenState extends State<ScrollScreen> {
     super.dispose();
   }
 
-  // Add error handling to _showFunFactDialog
+  // Method to show fun fact dialog with enhanced design
   void _showFunFactDialog(Post post, BuildContext context) {
-    try {
-      final theme = Theme.of(context);
-      final isDarkMode = theme.brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
 
-      // Generate a fun fact based on post content
-      String funFact = _generateFunFact(post);
+    // Generate a fun fact based on post content
+    String funFact = _generateFunFact(post);
 
-      // Play a subtle sound effect for the "boom"
-      SystemSound.play(SystemSoundType.click);
-      HapticFeedback.mediumImpact();
+    // Play a subtle sound effect for the "boom"
+    SystemSound.play(SystemSoundType.click);
+    HapticFeedback.mediumImpact();
 
-      showGeneralDialog(
-        context: context,
-        barrierDismissible: true,
-        barrierLabel: "Fun Fact",
-        pageBuilder: (context, animation1, animation2) => Container(),
-        transitionBuilder: (context, animation, secondaryAnimation, child) {
-          // Create boom animation with a bounce effect
-          var curve = CurvedAnimation(
-            parent: animation,
-            curve: Curves.elasticOut,
-          );
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Fun Fact",
+      pageBuilder: (context, animation1, animation2) => Container(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        // Create boom animation with a bounce effect
+        var curve = CurvedAnimation(
+          parent: animation,
+          curve: Curves.elasticOut,
+        );
 
-          return ScaleTransition(
-            scale: Tween<double>(begin: 0.3, end: 1.0).animate(curve),
-            child: FadeTransition(
-              opacity: Tween<double>(begin: 0.0, end: 1.0).animate(animation),
-              child: Dialog(
-                backgroundColor: Colors.transparent,
-                elevation: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors:
-                          isDarkMode
-                              ? [Color(0xFF1E2A3A), Color(0xFF152238)]
-                              : [Color(0xFFF0F8FF), Color(0xFFE1EBEE)],
-                    ),
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isDarkMode ? Colors.black38 : Colors.black12,
-                        blurRadius: 15,
-                        spreadRadius: 2,
-                        offset: Offset(0, 5),
-                      ),
-                    ],
-                    border: Border.all(
-                      color: theme.primaryColor.withOpacity(0.5),
-                      width: 2,
-                    ),
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.3, end: 1.0).animate(curve),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0.0, end: 1.0).animate(animation),
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors:
+                        isDarkMode
+                            ? [Color(0xFF1E2A3A), Color(0xFF152238)]
+                            : [Color(0xFFF0F8FF), Color(0xFFE1EBEE)],
                   ),
-                  padding: EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Header with icon
-                      Row(
-                        children: [
-                          Container(
-                            padding: EdgeInsets.all(10),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black38 : Colors.black12,
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                      offset: Offset(0, 5),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: theme.primaryColor.withOpacity(0.5),
+                    width: 2,
+                  ),
+                ),
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header with icon
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.primaryColor.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.lightbulb,
+                            color: theme.primaryColor,
+                            size: 30,
+                          ),
+                        ),
+                        SizedBox(width: 15),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Did You Know?',
+                                style: TextStyle(
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              Text(
+                                'Fun Fact from ${post.domain.toUpperCase()}',
+                                style: TextStyle(
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white70
+                                          : Colors.black54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 20),
+
+                    // Divider with decorative elements
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 1,
                             decoration: BoxDecoration(
-                              color: theme.primaryColor.withOpacity(0.2),
+                              gradient: LinearGradient(
+                                colors: [
+                                  theme.primaryColor.withOpacity(0.1),
+                                  theme.primaryColor,
+                                  theme.primaryColor.withOpacity(0.1),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: theme.primaryColor,
                               shape: BoxShape.circle,
                             ),
-                            child: Icon(
-                              Icons.lightbulb,
-                              color: theme.primaryColor,
-                              size: 30,
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  theme.primaryColor,
+                                  theme.primaryColor.withOpacity(0.1),
+                                ],
+                              ),
                             ),
                           ),
-                          SizedBox(width: 15),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Did You Know?',
-                                  style: TextStyle(
-                                    color:
-                                        isDarkMode
-                                            ? Colors.white
-                                            : Colors.black87,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 20,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                Text(
-                                  'Fun Fact from ${post.domain.toUpperCase()}',
-                                  style: TextStyle(
-                                    color:
-                                        isDarkMode
-                                            ? Colors.white70
-                                            : Colors.black54,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 20),
+
+                    // Fact content
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color:
+                            isDarkMode
+                                ? Colors.black.withOpacity(0.2)
+                                : Colors.white.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDarkMode ? Colors.white24 : Colors.black12,
+                          width: 1,
+                        ),
                       ),
+                      child: Text(
+                        funFact,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                          height: 1.4,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
 
-                      SizedBox(height: 20),
+                    SizedBox(height: 24),
 
-                      // Divider with decorative elements
-                      Row(
+                    // Action button
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 30,
+                          vertical: 12,
+                        ),
+                        elevation: 5,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    theme.primaryColor.withOpacity(0.1),
-                                    theme.primaryColor,
-                                    theme.primaryColor.withOpacity(0.1),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8.0,
-                            ),
-                            child: Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: theme.primaryColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    theme.primaryColor,
-                                    theme.primaryColor.withOpacity(0.1),
-                                  ],
-                                ),
-                              ),
+                          Icon(Icons.check_circle_outline, size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            'Awesome!',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
                           ),
                         ],
                       ),
-
-                      SizedBox(height: 20),
-
-                      // Fact content
-                      Container(
-                        padding: EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color:
-                              isDarkMode
-                                  ? Colors.black.withOpacity(0.2)
-                                  : Colors.white.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: isDarkMode ? Colors.white24 : Colors.black12,
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          funFact,
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: isDarkMode ? Colors.white : Colors.black87,
-                            height: 1.4,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
-
-                      SizedBox(height: 24),
-
-                      // Action button
-                      ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.primaryColor,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 30,
-                            vertical: 12,
-                          ),
-                          elevation: 5,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.check_circle_outline, size: 18),
-                            SizedBox(width: 8),
-                            Text(
-                              'Awesome!',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
-          );
-        },
-        transitionDuration: Duration(milliseconds: 600),
-      );
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
-    }
+          ),
+        );
+      },
+      transitionDuration: Duration(milliseconds: 600),
+    );
   }
 
   // Helper to generate a fun fact from post content
@@ -1497,10 +1418,14 @@ class _ScrollScreenState extends State<ScrollScreen> {
     return "Did you know? The topic \"${post.title}\" has been researched extensively and continues to fascinate experts in the field of ${post.domain}.";
   }
 
-  // Wrap _fetchPosts with try-catch
+  // Update the fetchPosts method to handle lazy loading
   Future<void> _fetchPosts() async {
     setState(() {
-      isLoading = true;
+      if (_currentPage == 1) {
+        isLoading = true;
+      } else {
+        _isLoadingMore = true;
+      }
       _isBertLoading = true;
     });
 
@@ -1510,64 +1435,81 @@ class _ScrollScreenState extends State<ScrollScreen> {
       userId = prefs.getString('userId');
 
       if (userId == null) {
-        throw Exception('User ID not found');
+        setState(() {
+          isLoading = false;
+          _isLoadingMore = false;
+          _isBertLoading = false;
+        });
+        return;
       }
 
-      // First fetch standard recommendations
-      final standardResponse = await http
-          .get(
-            Uri.parse(
-              '${Config.baseUrl}/user/$userId/standard-recommendations',
-            ),
-          )
-          .timeout(
-            Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('Connection timed out. Please try again.');
-            },
-          );
+      // First fetch standard recommendations with pagination
+      final standardResponse = await http.get(
+        Uri.parse(
+          '${Config.baseUrl}/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
+        ),
+      );
 
       if (standardResponse.statusCode == 200) {
         final data = json.decode(standardResponse.body);
         final standardArticles = data['standardRecommendedArticles'] as List;
 
+        // Parse the fetched posts
+        final fetchedPosts =
+            standardArticles
+                .map<Post>((article) => Post.fromJson(article))
+                .toList();
+
         setState(() {
-          posts =
-              standardArticles
-                  .map<Post>((article) => Post.fromJson(article))
-                  .toList();
+          if (_currentPage == 1) {
+            // For first page, replace the list
+            posts = fetchedPosts;
+          } else {
+            // For subsequent pages, append to the list
+            posts.addAll(fetchedPosts);
+          }
+
+          // Check if we've reached the end
+          _hasMorePosts = fetchedPosts.length >= _postsPerPage;
+          _currentPage++;
           isLoading = false;
+          _isLoadingMore = false;
         });
 
+        print("Before bert : ${posts.length}");
+
         // After standard recommendations load, fetch BERT recommendations in background
-        await _fetchBertRecommendations();
+        // Only fetch BERT for the first page
+        if (_currentPage == 2) {
+          await _fetchBertRecommendations();
+        }
+
+        print("after bert : ${posts.length}");
       } else {
-        throw Exception(
-          'Failed to load standard recommendations: ${standardResponse.statusCode}',
-        );
+        setState(() {
+          isLoading = false;
+          _isLoadingMore = false;
+          _isBertLoading = false;
+        });
       }
-    } catch (error) {
-      _showErrorSnackbar(error.toString());
+    } catch (e) {
+      print('Error fetching posts: $e');
       setState(() {
         isLoading = false;
+        _isLoadingMore = false;
         _isBertLoading = false;
       });
     }
   }
 
-  // Wrap _fetchBertRecommendations with try-catch
+  // New method to fetch BERT recommendations separately
   Future<void> _fetchBertRecommendations() async {
     if (userId == null) return;
 
     try {
-      final bertResponse = await http
-          .get(Uri.parse('${Config.baseUrl}/user/$userId/bert-recommendations'))
-          .timeout(
-            Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('BERT recommendations timed out.');
-            },
-          );
+      final bertResponse = await http.get(
+        Uri.parse('${Config.baseUrl}/user/$userId/bert-recommendations'),
+      );
 
       if (bertResponse.statusCode == 200) {
         final data = json.decode(bertResponse.body);
@@ -1581,6 +1523,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
           _isBertLoading = false;
 
           // Now merge BERT recommendations with standard posts
+          // Add BERT posts at the beginning or intersperse them
           if (_bertRecommendedPosts.isNotEmpty) {
             // Create a new list with BERT recommendations first
             List<Post> allPosts = [..._bertRecommendedPosts];
@@ -1598,17 +1541,135 @@ class _ScrollScreenState extends State<ScrollScreen> {
           }
         });
       } else {
-        throw Exception(
-          'Failed to load BERT recommendations: ${bertResponse.statusCode}',
-        );
+        setState(() {
+          _isBertLoading = false;
+          _bertFailed = true;
+        });
       }
-    } catch (error) {
-      print('Error fetching BERT recommendations: $error');
+    } catch (e) {
+      print('Error fetching BERT recommendations: $e');
       setState(() {
         _isBertLoading = false;
         _bertFailed = true;
       });
-      // Don't show a snackbar for BERT failures as they're not critical
     }
+  }
+
+  // Method to load more posts as the user scrolls
+  Future<void> _loadMorePosts() async {
+    if (!_isLoadingMore && _hasMorePosts) {
+      await _fetchRecommendedArticles();
+    }
+  }
+
+  Widget _buildSkeletonCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final skeletonBaseColor =
+        isDarkMode ? Colors.grey[800]! : Colors.grey[300]!;
+    final skeletonHighlightColor =
+        isDarkMode ? Colors.grey[700]! : Colors.grey[200]!;
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color:
+                isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            // Image placeholder
+            Container(
+              height: MediaQuery.of(context).size.height * 0.35,
+              width: double.infinity,
+              color: skeletonBaseColor,
+            ),
+
+            // Content section
+            Container(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title placeholder
+                  Container(
+                    height: 24,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: skeletonBaseColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+
+                  SizedBox(height: 8),
+
+                  // Shorter title line placeholder
+                  Container(
+                    height: 24,
+                    width: MediaQuery.of(context).size.width * 0.7,
+                    decoration: BoxDecoration(
+                      color: skeletonBaseColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+
+                  SizedBox(height: 16),
+
+                  // Summary placeholder lines
+                  for (int i = 0; i < 5; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Container(
+                        height: 16,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          // Alternate colors and widths for more realistic text effect
+                          color:
+                              i % 2 == 0
+                                  ? skeletonBaseColor
+                                  : skeletonHighlightColor,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+
+                  SizedBox(height: 16),
+
+                  Divider(),
+
+                  // Action buttons placeholders
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: List.generate(
+                      3,
+                      (index) => Container(
+                        height: 24,
+                        width: 24,
+                        decoration: BoxDecoration(
+                          color: skeletonBaseColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

@@ -3,16 +3,24 @@ import 'package:tik_tok_wikipidiea/Auth/AuthScreen.dart';
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
+import 'dart:io';
 
 void main() async {
   // Ensure Flutter is initialized
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize WebView platform based on operating system
+
+      WebViewPlatform.instance = AndroidWebViewPlatform();
+   
   // Initialize theme service
   final themeService = ThemeService();
   await themeService.init();
 
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
