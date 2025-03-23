@@ -25,6 +25,16 @@ class _ScrollScreenState extends State<ScrollScreen> {
   bool isLoading = true;
   String? userId;
 
+  // Keys for SharedPreferences storage
+  final String _readArticlesKey = 'read_articles_today';
+  final String _readDateKey = 'read_articles_date';
+  final String _readCountKey = 'read_articles_count';
+
+  // Set to store IDs of articles read today (to avoid counting the same one twice)
+  Set<String> _readArticleIds = {};
+  int _todayReadCount = 0;
+  String _currentDate = '';
+
   // Add TTS engine
   late FlutterTts flutterTts;
   bool isSpeaking = false;
@@ -45,7 +55,6 @@ class _ScrollScreenState extends State<ScrollScreen> {
   DateTime? _pageViewStartTime;
   Map<int, Duration> _readingTimes = {};
 
-  // Fallback images for different domains
   // Fallback images for different domains
   final Map<String, String> _domainImages = {
     'nature':
@@ -83,14 +92,77 @@ class _ScrollScreenState extends State<ScrollScreen> {
   void initState() {
     super.initState();
     _initTts();
-    _loadUserId();
+    _loadUserData();
     _startTrackingTime(0);
+    _loadReadArticlesData();
 
     // Listen for auto-scroll setting changes
     _autoScrollService.addListener(_updateAutoScroll);
 
     // Initialize auto-scroll if enabled
     _updateAutoScroll();
+  }
+
+  // Initialize article read tracking data
+  Future<void> _loadReadArticlesData() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    // Get the current date in yyyy-MM-dd format
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    _currentDate = today;
+
+    // Check if we need to reset the count (new day)
+    final storedDate = prefs.getString(_readDateKey) ?? '';
+
+    if (storedDate != today) {
+      // New day, reset everything
+      await prefs.setString(_readDateKey, today);
+      await prefs.setInt(_readCountKey, 0);
+      await prefs.setStringList(_readArticlesKey, []);
+
+      _todayReadCount = 0;
+      _readArticleIds = {};
+    } else {
+      // Same day, load existing data
+      _todayReadCount = prefs.getInt(_readCountKey) ?? 0;
+      _readArticleIds = (prefs.getStringList(_readArticlesKey) ?? []).toSet();
+    }
+  }
+
+  // Save read article data to SharedPreferences
+  Future<void> _saveReadArticlesData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_readCountKey, _todayReadCount);
+    await prefs.setStringList(_readArticlesKey, _readArticleIds.toList());
+
+    // Also check if date needs updating
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    if (_currentDate != today) {
+      _currentDate = today;
+      await prefs.setString(_readDateKey, today);
+
+      // Reset counters for the new day
+      _todayReadCount = 0;
+      _readArticleIds = {};
+      await prefs.setInt(_readCountKey, 0);
+      await prefs.setStringList(_readArticlesKey, []);
+    }
+  }
+
+  // Mark an article as read and increment today's count
+  Future<void> _markArticleAsRead(Post post) async {
+    if (!_readArticleIds.contains(post.id.toString())) {
+      setState(() {
+        _readArticleIds.add(post.id.toString());
+        _todayReadCount++;
+      });
+      await _saveReadArticlesData();
+    }
   }
 
   // Initialize text-to-speech
@@ -120,7 +192,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
     });
   }
 
-  Future<void> _loadUserId() async {
+  Future<void> _loadUserData() async {
     final prefs = await SharedPreferences.getInstance();
     userId = prefs.getString('userId');
     if (userId != null) {
@@ -257,8 +329,9 @@ class _ScrollScreenState extends State<ScrollScreen> {
     _currentIndex = index;
   }
 
-  void _recordReadingTime() {
-    if (_pageViewStartTime != null) {
+  // Updated method to check for articles read more than 7 seconds
+  void _recordReadingTime() async {
+    if (_pageViewStartTime != null && _currentIndex < posts.length) {
       final duration = DateTime.now().difference(_pageViewStartTime!);
 
       // Add to existing time if already viewed this post
@@ -268,9 +341,24 @@ class _ScrollScreenState extends State<ScrollScreen> {
         _readingTimes[_currentIndex] = duration;
       }
 
+      // Check if the post has been read for more than 7 seconds
+      if (_readingTimes[_currentIndex]!.inSeconds > 7) {
+        final post = posts[_currentIndex];
+        await _markArticleAsRead(post);
+      }
+
       print(
-        '============================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
+        '====================Post $_currentIndex reading time: ${_readingTimes[_currentIndex]!.inSeconds} seconds',
       );
+    }
+
+    // Check if we need to reset counters (day changed)
+    final now = DateTime.now();
+    final today =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+    if (_currentDate != today) {
+      await _loadReadArticlesData(); // This will reset counters if needed
     }
   }
 
