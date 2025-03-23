@@ -575,38 +575,41 @@ class _ScrollScreenState extends State<ScrollScreen> {
                 Container(
                   height: MediaQuery.of(context).size.height * 0.35,
                   width: double.infinity,
-                  child: Image.network(
-                    post.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      // Use domain-specific fallback image
-                      return Image.network(
-                        _getDomainImage(post.domain),
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          // Ultimate fallback if even the fallback fails
-                          return Container(
-                            color:
-                                isDarkMode
-                                    ? Colors.grey[800]
-                                    : Colors.grey[300],
-                            child: Center(
-                              child: Text(
-                                post.domain.toUpperCase(),
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color:
-                                      isDarkMode
-                                          ? Colors.white70
-                                          : Colors.black54,
+                  child: Hero(
+                    tag: 'post_image_${post.id}',
+                    child: Image.network(
+                      post.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        // Use domain-specific fallback image
+                        return Image.network(
+                          _getDomainImage(post.domain),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            // Ultimate fallback if even the fallback fails
+                            return Container(
+                              color:
+                                  isDarkMode
+                                      ? Colors.grey[800]
+                                      : Colors.grey[300],
+                              child: Center(
+                                child: Text(
+                                  post.domain.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        isDarkMode
+                                            ? Colors.white70
+                                            : Colors.black54,
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                            );
+                          },
+                        );
+                      },
+                    ),
                   ),
                 ),
 
@@ -688,17 +691,45 @@ class _ScrollScreenState extends State<ScrollScreen> {
                     // Record reading time before navigation
                     _recordReadingTime();
 
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DetailScreen(post: post),
-                      ),
-                    ).then((_) {
-                      // Resume tracking when returning from details page
-                      _startTrackingTime(_currentIndex);
-                      // Reset swipe state to allow repeated swipes
-                      _isSwipingRight = false;
-                    });
+                    // Enhanced navigation with custom transition
+                    Navigator.of(context)
+                        .push(
+                          PageRouteBuilder(
+                            pageBuilder:
+                                (context, animation, secondaryAnimation) =>
+                                    DetailScreen(post: post),
+                            transitionDuration: Duration(milliseconds: 400),
+                            transitionsBuilder: (
+                              context,
+                              animation,
+                              secondaryAnimation,
+                              child,
+                            ) {
+                              var begin = Offset(1.0, 0.0);
+                              var end = Offset.zero;
+                              var curve = Curves.easeOutCubic;
+                              var tween = Tween(
+                                begin: begin,
+                                end: end,
+                              ).chain(CurveTween(curve: curve));
+                              var offsetAnimation = animation.drive(tween);
+
+                              return SlideTransition(
+                                position: offsetAnimation,
+                                child: FadeTransition(
+                                  opacity: animation,
+                                  child: child,
+                                ),
+                              );
+                            },
+                          ),
+                        )
+                        .then((_) {
+                          // Resume tracking when returning from details page
+                          _startTrackingTime(_currentIndex);
+                          // Reset swipe state to allow repeated swipes
+                          _isSwipingRight = false;
+                        });
                   } else {
                     _isSwipingRight = false;
                   }

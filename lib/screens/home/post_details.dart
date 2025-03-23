@@ -200,38 +200,41 @@ class _DetailScreenState extends State<DetailScreen> {
                   fit: StackFit.expand,
                   children: [
                     // Use the same image with fallback as in scroll screen
-                    Image.network(
-                      widget.post.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        // Use domain-specific fallback image
-                        return Image.network(
-                          _getDomainImage(widget.post.domain),
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            // Ultimate fallback if even the fallback fails
-                            return Container(
-                              color:
-                                  isDarkMode
-                                      ? Colors.grey[800]
-                                      : Colors.grey[300],
-                              child: Center(
-                                child: Text(
-                                  widget.post.domain.toUpperCase(),
-                                  style: TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color:
-                                        isDarkMode
-                                            ? Colors.white70
-                                            : Colors.black54,
+                    Hero(
+                      tag: 'post_image_${widget.post.id}',
+                      child: Image.network(
+                        widget.post.imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          // Use domain-specific fallback image
+                          return Image.network(
+                            _getDomainImage(widget.post.domain),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              // Ultimate fallback if even the fallback fails
+                              return Container(
+                                color:
+                                    isDarkMode
+                                        ? Colors.grey[800]
+                                        : Colors.grey[300],
+                                child: Center(
+                                  child: Text(
+                                    widget.post.domain.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                      color:
+                                          isDarkMode
+                                              ? Colors.white70
+                                              : Colors.black54,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                              );
+                            },
+                          );
+                        },
+                      ),
                     ),
                     // Gradient overlay for better text visibility
                     DecoratedBox(
