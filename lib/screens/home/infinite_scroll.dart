@@ -25,6 +25,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
   bool isLoading = true;
   String? userId;
 
+  // Add pagination variables
+  int _currentPage = 1;
+  final int _postsPerPage = 10;
+  bool _hasMorePosts = true;
+  bool _isLoadingMore = false;
+
   // Keys for SharedPreferences storage
   final String _readArticlesKey = 'read_articles_today';
   final String _readDateKey = 'read_articles_date';
@@ -196,15 +202,30 @@ class _ScrollScreenState extends State<ScrollScreen> {
     final prefs = await SharedPreferences.getInstance();
     userId = prefs.getString('userId');
     if (userId != null) {
+      // Reset pagination when initially loading
+      _currentPage = 1;
+      _hasMorePosts = true;
       await _fetchRecommendedArticles();
     }
   }
 
   Future<void> _fetchRecommendedArticles() async {
+    if (!_hasMorePosts) return;
+
     try {
+      setState(() {
+        if (_currentPage == 1) {
+          isLoading = true;
+        } else {
+          _isLoadingMore = true;
+        }
+      });
+
       final baseUrl = Config.baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/user/$userId/standard-recommendations'),
+        Uri.parse(
+          '$baseUrl/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -219,14 +240,33 @@ class _ScrollScreenState extends State<ScrollScreen> {
         final sortedPosts = _sortPostsByDomain(fetchedPosts);
 
         setState(() {
-          posts = sortedPosts;
+          if (_currentPage == 1) {
+            // For the first page, replace the list
+            posts = sortedPosts;
+          } else {
+            // For subsequent pages, append to the list
+            posts.addAll(sortedPosts);
+          }
+
+          // Check if we've reached the end
+          _hasMorePosts = sortedPosts.length >= _postsPerPage;
+          _currentPage++;
           isLoading = false;
+          _isLoadingMore = false;
         });
       } else {
+        setState(() {
+          isLoading = false;
+          _isLoadingMore = false;
+        });
         throw Exception('Failed to load articles');
       }
     } catch (error) {
       print('Error fetching articles: $error');
+      setState(() {
+        isLoading = false;
+        _isLoadingMore = false;
+      });
     }
   }
 
@@ -394,10 +434,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
   // Replace _shufflePosts with refresh method
   Future<void> _refreshPosts() async {
+    _currentPage = 1;
+    _hasMorePosts = true;
     setState(() {
       isLoading = true;
     });
-    await _fetchPosts();
+    await _fetchRecommendedArticles();
   }
 
   // Add this function to the _ScrollScreenState class
@@ -574,23 +616,15 @@ class _ScrollScreenState extends State<ScrollScreen> {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
 
-    if (isLoading) {
+    if (isLoading && _currentPage == 1) {
       return Scaffold(
         appBar: AppBar(title: Text("TikTok Wikipedia")),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(theme.primaryColor),
-              ),
-              SizedBox(height: 16),
-              Text(
-                "Loading your personalized content...",
-                style: theme.textTheme.bodyMedium,
-              ),
-            ],
-          ),
+        body: ListView.builder(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          itemCount: 5, // Show multiple skeleton cards
+          itemBuilder: (context, index) {
+            return _buildSkeletonCard(context);
+          },
         ),
       );
     }
@@ -624,29 +658,64 @@ class _ScrollScreenState extends State<ScrollScreen> {
       ),
       body: RefreshIndicator(
         onRefresh: _refreshPosts,
-        child: PageView.builder(
-          controller: _pageController,
-          scrollDirection: Axis.vertical,
-          physics: const BouncingScrollPhysics(), // Smoother scrolling
-          itemCount: posts.length,
-          onPageChanged: (index) {
-            // Stop any ongoing TTS when changing pages
-            if (isSpeaking) {
-              flutterTts.stop();
-              setState(() {
-                isSpeaking = false;
-                currentSpeakingPostId = null;
-              });
+        child: NotificationListener<ScrollNotification>(
+          onNotification: (ScrollNotification scrollInfo) {
+            // Check if we're near the end of the list to load more posts
+            if (scrollInfo is ScrollEndNotification) {
+              if (_pageController.page != null &&
+                  _pageController.page! >= posts.length - 3 &&
+                  !_isLoadingMore &&
+                  _hasMorePosts) {
+                _loadMorePosts();
+              }
             }
+            return false;
+          },
+          child: PageView.builder(
+            controller: _pageController,
+            scrollDirection: Axis.vertical,
+            physics: const BouncingScrollPhysics(),
+            itemCount: _hasMorePosts ? posts.length + 1 : posts.length,
+            onPageChanged: (index) {
+              // Stop any ongoing TTS when changing pages
+              if (isSpeaking) {
+                flutterTts.stop();
+                setState(() {
+                  isSpeaking = false;
+                  currentSpeakingPostId = null;
+                });
+              }
 
-            // Record time for previous page and start timer for new page
-            _recordReadingTime();
-            _startTrackingTime(index);
-          },
-          itemBuilder: (context, index) {
-            final post = posts[index];
-            return _buildEnhancedCard(post, context, isDarkMode, theme);
-          },
+              // Record time for previous page and start timer for new page
+              _recordReadingTime();
+
+              // Check if we need to load more posts
+              if (index >= posts.length - 3 &&
+                  !_isLoadingMore &&
+                  _hasMorePosts) {
+                _loadMorePosts();
+              }
+
+              // Only track time for valid indices
+              if (index < posts.length) {
+                _startTrackingTime(index);
+              }
+            },
+            itemBuilder: (context, index) {
+              // Show a loading indicator at the end if more posts can be loaded
+              if (index >= posts.length) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+
+              final post = posts[index];
+              return _buildEnhancedCard(post, context, isDarkMode, theme);
+            },
+          ),
         ),
       ),
     );
@@ -1349,10 +1418,14 @@ class _ScrollScreenState extends State<ScrollScreen> {
     return "Did you know? The topic \"${post.title}\" has been researched extensively and continues to fascinate experts in the field of ${post.domain}.";
   }
 
-  // Update the fetchPosts method to handle sequential API calls
+  // Update the fetchPosts method to handle lazy loading
   Future<void> _fetchPosts() async {
     setState(() {
-      isLoading = true;
+      if (_currentPage == 1) {
+        isLoading = true;
+      } else {
+        _isLoadingMore = true;
+      }
       _isBertLoading = true;
     });
 
@@ -1364,35 +1437,58 @@ class _ScrollScreenState extends State<ScrollScreen> {
       if (userId == null) {
         setState(() {
           isLoading = false;
+          _isLoadingMore = false;
           _isBertLoading = false;
         });
         return;
       }
 
-      // First fetch standard recommendations
+      // First fetch standard recommendations with pagination
       final standardResponse = await http.get(
-        Uri.parse('${Config.baseUrl}/user/$userId/standard-recommendations'),
+        Uri.parse(
+          '${Config.baseUrl}/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
+        ),
       );
 
       if (standardResponse.statusCode == 200) {
         final data = json.decode(standardResponse.body);
         final standardArticles = data['standardRecommendedArticles'] as List;
 
+        // Parse the fetched posts
+        final fetchedPosts =
+            standardArticles
+                .map<Post>((article) => Post.fromJson(article))
+                .toList();
+
         setState(() {
-          posts =
-              standardArticles
-                  .map<Post>((article) => Post.fromJson(article))
-                  .toList();
+          if (_currentPage == 1) {
+            // For first page, replace the list
+            posts = fetchedPosts;
+          } else {
+            // For subsequent pages, append to the list
+            posts.addAll(fetchedPosts);
+          }
+
+          // Check if we've reached the end
+          _hasMorePosts = fetchedPosts.length >= _postsPerPage;
+          _currentPage++;
           isLoading = false;
+          _isLoadingMore = false;
         });
+
         print("Before bert : ${posts.length}");
+
         // After standard recommendations load, fetch BERT recommendations in background
-        await _fetchBertRecommendations();
+        // Only fetch BERT for the first page
+        if (_currentPage == 2) {
+          await _fetchBertRecommendations();
+        }
 
         print("after bert : ${posts.length}");
       } else {
         setState(() {
           isLoading = false;
+          _isLoadingMore = false;
           _isBertLoading = false;
         });
       }
@@ -1400,6 +1496,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
       print('Error fetching posts: $e');
       setState(() {
         isLoading = false;
+        _isLoadingMore = false;
         _isBertLoading = false;
       });
     }
@@ -1456,5 +1553,123 @@ class _ScrollScreenState extends State<ScrollScreen> {
         _bertFailed = true;
       });
     }
+  }
+
+  // Method to load more posts as the user scrolls
+  Future<void> _loadMorePosts() async {
+    if (!_isLoadingMore && _hasMorePosts) {
+      await _fetchRecommendedArticles();
+    }
+  }
+
+  Widget _buildSkeletonCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final skeletonBaseColor =
+        isDarkMode ? Colors.grey[800]! : Colors.grey[300]!;
+    final skeletonHighlightColor =
+        isDarkMode ? Colors.grey[700]! : Colors.grey[200]!;
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color:
+                isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          children: [
+            // Image placeholder
+            Container(
+              height: MediaQuery.of(context).size.height * 0.35,
+              width: double.infinity,
+              color: skeletonBaseColor,
+            ),
+
+            // Content section
+            Container(
+              padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title placeholder
+                  Container(
+                    height: 24,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: skeletonBaseColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+
+                  SizedBox(height: 8),
+
+                  // Shorter title line placeholder
+                  Container(
+                    height: 24,
+                    width: MediaQuery.of(context).size.width * 0.7,
+                    decoration: BoxDecoration(
+                      color: skeletonBaseColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+
+                  SizedBox(height: 16),
+
+                  // Summary placeholder lines
+                  for (int i = 0; i < 5; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: Container(
+                        height: 16,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          // Alternate colors and widths for more realistic text effect
+                          color:
+                              i % 2 == 0
+                                  ? skeletonBaseColor
+                                  : skeletonHighlightColor,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+
+                  SizedBox(height: 16),
+
+                  Divider(),
+
+                  // Action buttons placeholders
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: List.generate(
+                      3,
+                      (index) => Container(
+                        height: 24,
+                        width: 24,
+                        decoration: BoxDecoration(
+                          color: skeletonBaseColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
