@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tik_tok_wikipidiea/models/post_content.dart';
+import 'package:tik_tok_wikipidiea/config.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DetailScreen extends StatefulWidget {
   final Post post;
@@ -17,10 +21,41 @@ class _DetailScreenState extends State<DetailScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _showTitleInAppBar = false;
   final double _appBarTitleThreshold = 250.0;
+  String? userId;
+
+  // Fallback images for different domains
+  // Fallback images for different domains
+  final Map<String, String> _domainImages = {
+    'nature':
+        'https://images.unsplash.com/photo-1501854140801-50d01698950b?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'education':
+        'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'entertainment':
+        'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'technology':
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'science':
+        'https://images.unsplash.com/photo-1507413245164-6160d8298b31?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'political':
+        'https://images.unsplash.com/photo-1575320181282-9afab399332c?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'lifestyle':
+        'https://images.unsplash.com/photo-1545205597-3d9d02c29597?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'social':
+        'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'space':
+        'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'food':
+        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+  };
+
+  // Default fallback image if domain isn't in the map
+  final String _defaultImage =
+      'https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?q=80&w=1000';
 
   @override
   void initState() {
     super.initState();
+    _loadUserId();
     _loadArticleSections();
     _scrollController.addListener(_onScroll);
   }
@@ -32,6 +67,11 @@ class _DetailScreenState extends State<DetailScreen> {
     super.dispose();
   }
 
+  Future<void> _loadUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    userId = prefs.getString('userId');
+  }
+
   void _onScroll() {
     final showTitle = _scrollController.offset > _appBarTitleThreshold;
     if (showTitle != _showTitleInAppBar) {
@@ -41,17 +81,67 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  // Get fallback image for a domain
+  String _getDomainImage(String domain) {
+    String normalizedDomain = domain.toLowerCase();
+
+    // Check for partial matches (e.g., "tech-news" should match "technology")
+    for (var key in _domainImages.keys) {
+      if (normalizedDomain.contains(key) || key.contains(normalizedDomain)) {
+        return _domainImages[key]!;
+      }
+    }
+
+    return _domainImages[normalizedDomain] ?? _defaultImage;
+  }
+
+  // Add share article function
+  Future<void> _shareArticle() async {
+    try {
+      if (userId == null) return;
+
+      final baseUrl = Config.baseUrl;
+      final response = await http.post(
+        Uri.parse(
+          '$baseUrl/domains/${widget.post.domain}/articles/${widget.post.id}/share',
+        ),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'userId': userId}),
+      );
+
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Article shared successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        throw Exception('Failed to share article');
+      }
+    } catch (error) {
+      print('Error sharing article: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to share article'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Future<void> _loadArticleSections() async {
     await Future.delayed(Duration(milliseconds: 500)); // Simulate loading
 
     // Convert post sections to ArticleSection objects
-    final parsedSections = widget.post.sections.map((section) {
-      return ArticleSection(
-        title: section.title,
-        content: section.content,
-        isExpanded: false, // First two will be set to true below
-      );
-    }).toList();
+    final parsedSections =
+        widget.post.sections.map((section) {
+          return ArticleSection(
+            title: section.title,
+            content: section.content,
+            isExpanded: false, // First two will be set to true below
+          );
+        }).toList();
 
     // Set first two sections as expanded by default
     if (parsedSections.isNotEmpty) {
@@ -73,7 +163,7 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
-    
+
     // Use post title instead of description
     final articleTitle = widget.post.title;
 
@@ -106,47 +196,82 @@ class _DetailScreenState extends State<DetailScreen> {
                       )
                       : null,
               flexibleSpace: FlexibleSpaceBar(
-                background: Hero(
-                  tag: widget.post.imageUrl, // Updated to use imageUrl
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      Image.network(
-                        widget.post.imageUrl, // Updated to use imageUrl
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color:
-                                isDarkMode
-                                    ? Colors.grey[800]
-                                    : Colors.grey[300],
-                            child: Center(
-                              child: Icon(
-                                Icons.broken_image,
-                                size: 50,
-                                color: Theme.of(context).iconTheme.color,
+                background: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    // Use the same image with fallback as in scroll screen
+                    Image.network(
+                      widget.post.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        // Use domain-specific fallback image
+                        return Image.network(
+                          _getDomainImage(widget.post.domain),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            // Ultimate fallback if even the fallback fails
+                            return Container(
+                              color:
+                                  isDarkMode
+                                      ? Colors.grey[800]
+                                      : Colors.grey[300],
+                              child: Center(
+                                child: Text(
+                                  widget.post.domain.toUpperCase(),
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        isDarkMode
+                                            ? Colors.white70
+                                            : Colors.black54,
+                                  ),
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    // Gradient overlay for better text visibility
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            isDarkMode
+                                ? Colors.black.withOpacity(0.7)
+                                : Colors.black.withOpacity(0.4),
+                          ],
+                        ),
                       ),
-                      // Gradient overlay for better text visibility
-                      DecoratedBox(
+                    ),
+                    // Domain badge
+                    Positioned(
+                      bottom: 12,
+                      left: 16,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.transparent,
-                              isDarkMode
-                                  ? Colors.black.withOpacity(0.7)
-                                  : Colors.black.withOpacity(0.4),
-                            ],
+                          color: theme.primaryColor.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          widget.post.domain.toUpperCase(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
                           ),
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
               leading: IconButton(
@@ -182,14 +307,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       color: isDarkMode ? Colors.white : Colors.black87,
                     ),
                   ),
-                  onPressed: () {
-                    Clipboard.setData(
-                      ClipboardData(text: widget.post.summary),
-                    );
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Content copied to clipboard")),
-                    );
-                  },
+                  onPressed: _shareArticle,
                 ),
                 SizedBox(width: 8),
               ],
@@ -202,7 +320,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      widget.post.title, // Updated to use title
+                      widget.post.title,
                       style: Theme.of(context).textTheme.displayMedium
                           ?.copyWith(fontSize: 24, height: 1.3),
                     ),
@@ -221,11 +339,17 @@ class _DetailScreenState extends State<DetailScreen> {
                     _isLoading
                         ? _buildLoadingIndicator(theme)
                         : Column(
-                            children: sections
-                                .map((section) => _buildExpandableSection(
-                                    section, context, isDarkMode))
-                                .toList(),
-                          ),
+                          children:
+                              sections
+                                  .map(
+                                    (section) => _buildExpandableSection(
+                                      section,
+                                      context,
+                                      isDarkMode,
+                                    ),
+                                  )
+                                  .toList(),
+                        ),
 
                     SizedBox(height: 30),
 
@@ -250,14 +374,22 @@ class _DetailScreenState extends State<DetailScreen> {
                             height: 40,
                             width: 40,
                             decoration: BoxDecoration(
-                              color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                              color:
+                                  isDarkMode
+                                      ? Colors.grey[700]
+                                      : Colors.grey[300],
                               shape: BoxShape.circle,
                             ),
                             child: Center(
                               child: Text(
-                                widget.post.domain.substring(0, 1).toUpperCase(),
+                                widget.post.domain
+                                    .substring(0, 1)
+                                    .toUpperCase(),
                                 style: TextStyle(
-                                  color: isDarkMode ? Colors.white : Colors.black87,
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -271,7 +403,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                 widget.post.domain.toUpperCase(),
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: isDarkMode ? Colors.white : Colors.black87,
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
                                 ),
                               ),
                               SizedBox(height: 4),
@@ -279,7 +414,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                 "Published on ${widget.post.createdAt}",
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                                  color:
+                                      isDarkMode
+                                          ? Colors.grey[400]
+                                          : Colors.grey[600],
                                 ),
                               ),
                             ],

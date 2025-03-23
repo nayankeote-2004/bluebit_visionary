@@ -11,6 +11,7 @@ import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
 import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:flutter_tts/flutter_tts.dart';
 
 class ScrollScreen extends StatefulWidget {
   const ScrollScreen({super.key});
@@ -19,11 +20,15 @@ class ScrollScreen extends StatefulWidget {
   _ScrollScreenState createState() => _ScrollScreenState();
 }
 
-class _ScrollScreenState extends State<ScrollScreen>
-    with SingleTickerProviderStateMixin {
+class _ScrollScreenState extends State<ScrollScreen> {
   List<Post> posts = [];
   bool isLoading = true;
   String? userId;
+
+  // Add TTS engine
+  late FlutterTts flutterTts;
+  bool isSpeaking = false;
+  String? currentSpeakingPostId;
 
   PageController _pageController = PageController();
   bool _isSwipingRight = false;
@@ -40,9 +45,39 @@ class _ScrollScreenState extends State<ScrollScreen>
   DateTime? _pageViewStartTime;
   Map<int, Duration> _readingTimes = {};
 
+  // Fallback images for different domains
+  // Fallback images for different domains
+  final Map<String, String> _domainImages = {
+    'nature':
+        'https://images.unsplash.com/photo-1501854140801-50d01698950b?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'education':
+        'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'entertainment':
+        'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'technology':
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'science':
+        'https://images.unsplash.com/photo-1507413245164-6160d8298b31?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'political':
+        'https://images.unsplash.com/photo-1575320181282-9afab399332c?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'lifestyle':
+        'https://images.unsplash.com/photo-1545205597-3d9d02c29597?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'social':
+        'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'space':
+        'https://images.unsplash.com/photo-1462331940025-496dfbfc7564?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+    'food':
+        'https://images.unsplash.com/photo-1504674900247-0877df9cc836?ixlib=rb-1.2.1&auto=format&fit=crop&w=600&q=80',
+  };
+
+  // Default fallback image if domain isn't in the map
+  final String _defaultImage =
+      'https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?q=80&w=1000';
+
   @override
   void initState() {
     super.initState();
+    _initTts();
     _loadUserId();
     _startTrackingTime(0);
 
@@ -51,6 +86,33 @@ class _ScrollScreenState extends State<ScrollScreen>
 
     // Initialize auto-scroll if enabled
     _updateAutoScroll();
+  }
+
+  // Initialize text-to-speech
+  Future<void> _initTts() async {
+    flutterTts = FlutterTts();
+
+    await flutterTts.setLanguage("en-US");
+    await flutterTts.setSpeechRate(0.5);
+    await flutterTts.setVolume(1.0);
+    await flutterTts.setPitch(1.0);
+
+    // Add completion listener
+    flutterTts.setCompletionHandler(() {
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+    });
+
+    // Add error listener
+    flutterTts.setErrorHandler((msg) {
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+      print("TTS Error: $msg");
+    });
   }
 
   Future<void> _loadUserId() async {
@@ -89,6 +151,20 @@ class _ScrollScreenState extends State<ScrollScreen>
     } catch (error) {
       print('Error fetching articles: $error');
     }
+  }
+
+  // Get fallback image for a domain
+  String _getDomainImage(String domain) {
+    String normalizedDomain = domain.toLowerCase();
+
+    // Check for partial matches (e.g., "tech-news" should match "technology")
+    for (var key in _domainImages.keys) {
+      if (normalizedDomain.contains(key) || key.contains(normalizedDomain)) {
+        return _domainImages[key]!;
+      }
+    }
+
+    return _domainImages[normalizedDomain] ?? _defaultImage;
   }
 
   // This method sorts posts to avoid consecutive posts from the same domain
@@ -193,8 +269,14 @@ class _ScrollScreenState extends State<ScrollScreen>
     }
   }
 
-  // Add this function at the top of _ScrollScreenState class
+  // Updated to change UI first, then send request
   Future<void> _toggleLike(Post post) async {
+    // Update UI immediately
+    setState(() {
+      post.isLiked = !post.isLiked;
+    });
+
+    // Then send request to backend
     try {
       final baseUrl = Config.baseUrl;
       final response = await http.post(
@@ -204,52 +286,16 @@ class _ScrollScreenState extends State<ScrollScreen>
         headers: {'Content-Type': 'application/json'},
       );
 
-      if (response.statusCode == 200) {
+      if (response.statusCode != 200) {
+        // Revert if the request fails
         setState(() {
           post.isLiked = !post.isLiked;
         });
-      } else {
         throw Exception('Failed to toggle like');
       }
     } catch (error) {
       print('Error toggling like: $error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update like status'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  // Add this function in the _ScrollScreenState class
-  Future<void> _shareArticle(Post post) async {
-    try {
-      final baseUrl = Config.baseUrl;
-      final response = await http.post(
-        Uri.parse('$baseUrl/domains/${post.domain}/articles/${post.id}/share'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'userId': userId}),
-      );
-
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Article shared successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        throw Exception('Failed to share article');
-      }
-    } catch (error) {
-      print('Error sharing article: $error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to share article'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      // Already reverted the state above if needed
     }
   }
 
@@ -298,7 +344,6 @@ class _ScrollScreenState extends State<ScrollScreen>
   }
 
   // Update the _showComments method to fix the overflow issue
-
   void _showComments(Post post) {
     final TextEditingController commentController = TextEditingController();
 
@@ -373,18 +418,38 @@ class _ScrollScreenState extends State<ScrollScreen>
     );
   }
 
-  // Method to handle text-to-speech functionality
-  void _readArticle(Post post) {
-    // Show a snackbar indicating this feature is in development
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Audio feature coming soon!'),
-        duration: Duration(seconds: 2),
-      ),
-    );
+  // Updated method to handle text-to-speech functionality without snackbar
+  Future<void> _readArticle(Post post) async {
+    HapticFeedback.mediumImpact(); // Add haptic feedback
 
-    // You can implement text-to-speech functionality here
-    // using packages like flutter_tts
+    // If already speaking the same post, stop it
+    if (isSpeaking && currentSpeakingPostId == post.id.toString()) {
+      await flutterTts.stop();
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+      return;
+    }
+
+    // If speaking a different post, stop that first
+    if (isSpeaking) {
+      await flutterTts.stop();
+      setState(() {
+        isSpeaking = false;
+        currentSpeakingPostId = null;
+      });
+    }
+
+    // Prepare text to speak
+    String textToSpeak = "Title: ${post.title}. ${post.summary}";
+
+    // Start speaking without showing a snackbar
+    await flutterTts.speak(textToSpeak);
+    setState(() {
+      isSpeaking = true;
+      currentSpeakingPostId = post.id.toString();
+    });
   }
 
   // Update the build method to handle loading state
@@ -450,6 +515,15 @@ class _ScrollScreenState extends State<ScrollScreen>
           physics: const BouncingScrollPhysics(), // Smoother scrolling
           itemCount: posts.length,
           onPageChanged: (index) {
+            // Stop any ongoing TTS when changing pages
+            if (isSpeaking) {
+              flutterTts.stop();
+              setState(() {
+                isSpeaking = false;
+                currentSpeakingPostId = null;
+              });
+            }
+
             // Record time for previous page and start timer for new page
             _recordReadingTime();
             _startTrackingTime(index);
@@ -469,6 +543,10 @@ class _ScrollScreenState extends State<ScrollScreen>
     bool isDarkMode,
     ThemeData theme,
   ) {
+    // Check if this is the post currently being read aloud
+    bool isCurrentlyReading =
+        isSpeaking && currentSpeakingPostId == post.id.toString();
+
     return AnimatedContainer(
       duration: Duration(milliseconds: 300),
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
@@ -493,7 +571,7 @@ class _ScrollScreenState extends State<ScrollScreen>
             // Image section with overlay gradient
             Stack(
               children: [
-                // Image
+                // Image with domain-specific fallback
                 Container(
                   height: MediaQuery.of(context).size.height * 0.35,
                   width: double.infinity,
@@ -501,15 +579,32 @@ class _ScrollScreenState extends State<ScrollScreen>
                     post.imageUrl,
                     fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: isDarkMode ? Colors.grey[800] : Colors.grey[300],
-                        child: Center(
-                          child: Icon(
-                            Icons.broken_image,
-                            size: 50,
-                            color: theme.iconTheme.color,
-                          ),
-                        ),
+                      // Use domain-specific fallback image
+                      return Image.network(
+                        _getDomainImage(post.domain),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          // Ultimate fallback if even the fallback fails
+                          return Container(
+                            color:
+                                isDarkMode
+                                    ? Colors.grey[800]
+                                    : Colors.grey[300],
+                            child: Center(
+                              child: Text(
+                                post.domain.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white70
+                                          : Colors.black54,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),
@@ -572,23 +667,6 @@ class _ScrollScreenState extends State<ScrollScreen>
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.6),
                           borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.timer_outlined,
-                              size: 14,
-                              color: Colors.white,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              "${post.readingTime} min read",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ],
@@ -667,7 +745,7 @@ class _ScrollScreenState extends State<ScrollScreen>
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            // Mini AI read hint
+                            // Updated listen button showing active state
                             InkWell(
                               onTap: () => _readArticle(post),
                               borderRadius: BorderRadius.circular(12),
@@ -677,27 +755,48 @@ class _ScrollScreenState extends State<ScrollScreen>
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: theme.primaryColor.withOpacity(0.1),
+                                  color:
+                                      isCurrentlyReading
+                                          ? Colors.red.withOpacity(0.3)
+                                          : theme.primaryColor.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: theme.primaryColor.withOpacity(0.3),
+                                    color:
+                                        isCurrentlyReading
+                                            ? Colors.red
+                                            : theme.primaryColor.withOpacity(
+                                              0.3,
+                                            ),
                                     width: 1,
                                   ),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    // Show different icon based on playing state
                                     Icon(
-                                      Icons.headphones,
+                                      isCurrentlyReading
+                                          ? Icons.volume_up
+                                          : Icons.headphones,
                                       size: 14,
-                                      color: theme.primaryColor,
+                                      color:
+                                          isCurrentlyReading
+                                              ? Colors.red
+                                              : theme.primaryColor,
                                     ),
                                     SizedBox(width: 4),
                                     Text(
-                                      "Listen",
+                                      isCurrentlyReading ? "Stop" : "Listen",
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: theme.primaryColor,
+                                        color:
+                                            isCurrentlyReading
+                                                ? Colors.red
+                                                : theme.primaryColor,
+                                        fontWeight:
+                                            isCurrentlyReading
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
                                       ),
                                     ),
                                   ],
@@ -743,25 +842,27 @@ class _ScrollScreenState extends State<ScrollScreen>
 
                       Divider(),
 
-                      // Action buttons
+                      // Action buttons - removed share button
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
+                          // Fixed like button
                           _buildActionButton(
                             icon:
                                 post.isLiked
-                                    ? Icons.favorite
-                                    : Icons.favorite_border,
-                            color: Colors.red,
+                                    ? Icons
+                                        .favorite // Filled heart when liked
+                                    : Icons
+                                        .favorite_border, // Outline heart when not liked
+                            color:
+                                post.isLiked
+                                    ? Colors.red
+                                    : null, // Red when liked
                             onPressed: () => _toggleLike(post),
                           ),
                           _buildActionButton(
                             icon: Icons.comment_outlined,
                             onPressed: () => _showComments(post),
-                          ),
-                          _buildActionButton(
-                            icon: Icons.share_outlined,
-                            onPressed: () => _shareArticle(post),
                           ),
                           _buildActionButton(
                             icon:
@@ -823,6 +924,9 @@ class _ScrollScreenState extends State<ScrollScreen>
   void dispose() {
     // Record the final reading time when widget is disposed
     _recordReadingTime();
+
+    // Stop any ongoing TTS and dispose resources
+    flutterTts.stop();
 
     // Clean up auto-scroll timer and listeners
     _autoScrollTimer?.cancel();
