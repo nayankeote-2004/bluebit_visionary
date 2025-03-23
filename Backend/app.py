@@ -538,6 +538,41 @@ def add_comment(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
+@app.route('/domains/<domain>/articles/<article_id>/comments', methods=['GET'])
+def get_article_comments(domain, article_id):
+    try:
+        domain = domain.lower()
+        article_id = int(article_id)
+        
+        # Get the domain collection
+        domain_collection = db[domain]
+        
+        # Find the article
+        article = domain_collection.find_one({"id": article_id})
+        if not article:
+            return jsonify({"error": "Article not found"}), 404
+        
+        # Get comments (if any)
+        comments = article.get("comments", [])
+        
+        # Return the comments in chronological order (oldest first)
+        # Convert any datetime objects to strings for JSON serialization
+        for comment in comments:
+            if 'timestamp' in comment and isinstance(comment['timestamp'], datetime):
+                comment['timestamp'] = comment['timestamp'].strftime('%Y-%m-%d %H:%M:%S')
+        
+        return jsonify({
+            "articleId": article_id,
+            "articleTitle": article.get("title", ""),
+            "domain": domain,
+            "comments": comments,
+            "commentCount": len(comments)
+        }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
 @app.route('/domains/<domain>/articles/<article_id>/share', methods=['POST'])
 def share_article(domain, article_id):
     data = request.json
