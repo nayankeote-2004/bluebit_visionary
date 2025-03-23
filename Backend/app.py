@@ -9,6 +9,40 @@ import re
 from dotenv import load_dotenv
 from datetime import datetime
 
+
+# Add these imports at the top
+from functools import lru_cache
+import time
+from cachelib import SimpleCache
+import threading
+
+# Create a cache object
+cache = SimpleCache()
+
+# Create global variables for BERT model
+global_tokenizer = None
+global_model = None
+
+# Load BERT model in a separate thread at startup
+def load_bert_model():
+    global global_tokenizer, global_model
+    try:
+        from transformers import BertTokenizer, BertForSequenceClassification
+        print("Loading BERT model and tokenizer...")
+        global_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        global_model = BertForSequenceClassification.from_pretrained('bert-base-uncased')
+        print("BERT model loaded successfully")
+    except Exception as e:
+        print(f"Error loading BERT model: {str(e)}")
+
+# Start loading model in background thread
+threading.Thread(target=load_bert_model).start()
+
+# Add a caching decorator for Wikipedia data
+@lru_cache(maxsize=100)
+def get_cached_wikipedia_data(topic):
+    return get_wikipedia_data(topic)
+
 # Load environment variables
 load_dotenv()
 
@@ -675,8 +709,8 @@ def get_article_by_id(domain, article_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
     
-@app.route('/user/<user_id>/bert-recommendations', methods=['GET'])
-def get_bert_recommendations(user_id):
+@app.route('/user/<user_id>/bert-recommendations-test', methods=['GET'])
+def get_bert_recommendations_test(user_id):
     try:
         # Convert the string user ID to MongoDB ObjectId
         from bson.objectid import ObjectId
@@ -858,6 +892,154 @@ def get_bert_recommendations(user_id):
             "count": len(unique_bert_articles[:10]),
             "method": "BERT-based subdomain classification"
         }), 200
+            
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    
+
+
+@app.route('/user/<user_id>/bert-recommendations', methods=['GET'])
+def get_bert_recommendations(user_id):
+    # Check cache first
+    cache_key = f"bert_rec_{user_id}"
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return jsonify(cached_result), 200
+    
+    try:
+        # Set a timeout for the entire function
+        start_time = time.time()
+        max_execution_time = 25  # seconds
+        
+        # Convert the string user ID to MongoDB ObjectId
+        from bson.objectid import ObjectId
+        import numpy as np
+        
+        user_id_obj = ObjectId(user_id)
+        
+        # Find the user
+        user = users_collection.find_one({"_id": user_id_obj})
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Get user's interested domains and interactions
+        interested_domains = user.get("interestedDomains", [])
+        liked_articles = user.get("likedArticles", [])
+        
+        if not interested_domains:
+            return jsonify({"error": "User has no interested domains selected"}), 404
+            
+        # Convert domain names to lowercase for collection names
+        domain_collections = [domain.lower() for domain in interested_domains]
+        
+        # Create a set of all interacted articles to avoid recommending them
+        interacted_articles = set()
+        for item in liked_articles + user.get("commentedArticles", []) + user.get("sharedArticles", []):
+            if 'articleId' in item and 'domain' in item:
+                interacted_articles.add((item['articleId'], item['domain']))
+        
+        # Define the mapping of domains to subdomains (kept same as original)
+        domain_to_subdomains = {
+            "nature": ["Ecology", "Wildlife Conservation", "Botany"],
+            "education": ["Early Childhood Education", "Higher Education", "Online Learning"],
+            "entertainment": ["Movies", "Music", "Television Shows"],
+            "technology": ["Artificial Intelligence", "Cybersecurity", "Software Development"],
+            "science": ["Physics", "Chemistry", "Biology"],
+            "political": ["International Relations", "Government Systems", "Political Theories"],
+            "lifestyle": ["Travel & Tourism", "Fashion & Style", "Health & Wellness"],
+            "social": ["Sociology", "Psychology", "Social Media Trends"],
+            "space": ["Solar System", "Exoplanets", "Black Holes"],
+            "food": ["Culinary Arts", "Nutrition & Diet", "Food Science"],
+        }
+
+        bert_recommended_articles = []
+        
+        # For each interested domain, get some articles to recommend
+        for domain in domain_collections[:3]:  # Limit to top 3 domains
+            if time.time() - start_time > max_execution_time:
+                # We're running out of time, break early
+                break
+                
+            # Get 3-4 articles from each domain
+            if domain in db.list_collection_names():
+                # Get article IDs to exclude
+                exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+                
+                # Get random articles from this domain
+                random_articles = list(db[domain].aggregate([
+                    {"$match": {"id": {"$nin": exclude_ids}}},
+                    {"$sample": {"size": 4}},
+                    {"$project": {"_id": 0}}
+                ]))
+                
+                for article in random_articles:
+                    article["domain"] = domain
+                    article["recommendation_source"] = "domain_based"
+                
+                bert_recommended_articles.extend(random_articles)
+        
+        # If user has liked articles, try to get some subdomain recommendations
+        if liked_articles and global_tokenizer and global_model and len(bert_recommended_articles) < 10:
+            try:
+                # Use only a few liked articles to keep it fast
+                recent_liked = liked_articles[:3]
+                
+                # Mock subdomain classification for speed
+                subdomains_to_try = []
+                for liked in recent_liked:
+                    domain = liked.get('domain')
+                    if domain in domain_to_subdomains:
+                        # Pick a random subdomain
+                        import random
+                        subdomain = random.choice(domain_to_subdomains[domain])
+                        if subdomain not in subdomains_to_try:
+                            subdomains_to_try.append(subdomain)
+                
+                # Get 1-2 articles for each subdomain
+                for subdomain in subdomains_to_try[:2]:
+                    if time.time() - start_time > max_execution_time:
+                        # We're running out of time, break early
+                        break
+                        
+                    # Use cached version to speed up
+                    subdomain_wiki_data = get_cached_wikipedia_data(subdomain)
+                    
+                    if subdomain_wiki_data:
+                        # Add a couple articles from this subdomain
+                        for article in subdomain_wiki_data[:2]:
+                            article["subdomain"] = subdomain
+                            article["subdomain_score"] = 0.8  # Fixed score for speed
+                            
+                            # Find which main domain this subdomain belongs to
+                            for domain, subdomains in domain_to_subdomains.items():
+                                if subdomain in subdomains:
+                                    article["domain"] = domain
+                                    break
+                            
+                            bert_recommended_articles.append(article)
+            except Exception as bert_error:
+                print(f"Error in BERT recommendation: {str(bert_error)}")
+        
+        # Remove duplicates by ID
+        seen_ids = set()
+        unique_bert_articles = []
+        
+        for article in bert_recommended_articles:
+            if article["id"] not in seen_ids:
+                seen_ids.add(article["id"])
+                unique_bert_articles.append(article)
+        
+        # Prepare response
+        response_data = {
+            "bertRecommendedArticles": unique_bert_articles[:10],
+            "count": len(unique_bert_articles[:10]),
+            "method": "BERT-based subdomain classification"
+        }
+        
+        # Cache the result for 1 hour (3600 seconds)
+        cache.set(cache_key, response_data, timeout=3600)
+        
+        return jsonify(response_data), 200
             
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
@@ -1105,6 +1287,169 @@ def get_standard_recommendations(user_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
+@app.route('/articles/trending', methods=['GET'])
+def get_trending_articles():
+    try:
+        # Set a limit for the number of trending articles to return
+        limit = int(request.args.get('limit', 10))
+        
+        # Initialize array to store all articles
+        all_articles = []
+        
+        # Get valid domain collections
+        valid_domains = ["nature", "education", "entertainment", "technology", 
+                        "science", "political", "lifestyle", "social", 
+                        "space", "food"]
+        
+        # Process each domain
+        for domain in valid_domains:
+            if domain in db.list_collection_names():
+                # Find articles in this domain, sorted by popularity metrics
+                domain_articles = list(db[domain].find(
+                    {}, 
+                    {
+                        "_id": 0,
+                        "id": 1, 
+                        "title": 1, 
+                        "domain": domain,
+                        "likes": 1,
+                        "comments": 1
+                    }
+                ))
+                
+                # Add domain to each article and calculate engagement score
+                for article in domain_articles:
+                    article["domain"] = domain
+                    
+                    # Count number of comments
+                    article["comment_count"] = len(article.get("comments", []))
+                    
+                    # Calculate engagement score (likes + comments*2)
+                    # Comments weighted more as they show higher engagement
+                    article["engagement_score"] = (
+                        article.get("likes", 0) + 
+                        article["comment_count"] * 2
+                    )
+                
+                all_articles.extend(domain_articles)
+        
+        # Sort by engagement score (descending)
+        trending_articles = sorted(
+            all_articles, 
+            key=lambda x: x.get("engagement_score", 0),
+            reverse=True
+        )[:limit]
+        
+        # Format the response
+        formatted_articles = []
+        for article in trending_articles:
+            formatted_articles.append({
+                "id": article["id"],
+                "title": article["title"],
+                "domain": article["domain"],
+                "likes": article.get("likes", 0),
+                "comment_count": article["comment_count"],
+                "engagement_score": article["engagement_score"]
+            })
+        
+        return jsonify({
+            "trending_articles": formatted_articles,
+            "count": len(formatted_articles)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+
+def get_search_results(query, limit=5):
+    """
+    A specialized function to get search results from Wikipedia.
+    Returns a limited number of articles matched to the search query.
+    """
+    wiki_wiki = wikipediaapi.Wikipedia(
+        language='en',
+        user_agent='YourAppName/1.0 (https://yourwebsite.com; your-email@example.com)'
+    )
+    
+    # Search for pages related to the query
+    search_results = wikipedia.search(query, results=max(10, limit*2))  # Get more results than needed for fallback
+    data = []
+    
+    try:
+        # Process each search result
+        for page_title in search_results:
+            if len(data) >= limit:
+                break
+                
+            try:
+                # Get detailed page info using wikipediaapi
+                page = wiki_wiki.page(page_title)
+                if not page.exists():
+                    continue
+                
+                # Get image using wikipedia library
+                image_url = None
+                try:
+                    wikipedia_page = wikipedia.page(page_title, auto_suggest=False)
+                    image_url = wikipedia_page.images[0] if wikipedia_page.images else None
+                except Exception as img_error:
+                    print(f"Error getting image for {page_title}: {str(img_error)}")
+                
+                # Fetching summary with Wikipedia library
+                summary = wikipedia.summary(page_title, sentences=3, auto_suggest=False)
+                
+                # Format the response
+                data.append({
+                    "id": page.pageid,
+                    "url": page.fullurl,
+                    "title": page.title,
+                    "summary": summary,
+                    "image_url": image_url,
+                    "search_query": query,  # Add the search query for context
+                    "relevance_score": 1.0 - (search_results.index(page_title) / len(search_results))  # Simple relevance scoring
+                })
+                
+            except Exception as page_error:
+                print(f"Error processing search result {page_title}: {str(page_error)}")
+                continue
+        
+        return data if data else None
+        
+    except Exception as e:
+        print(f"An error occurred during search: {str(e)}")
+        return None
+
+@app.route('/search', methods=['GET'])
+def search_articles():
+    query = request.args.get('query')
+    if not query or len(query.strip()) < 2:
+        return jsonify({"error": "Please provide a valid search query (minimum 2 characters)"}), 400
+    
+    # Set limit with default of 5
+    try:
+        limit = int(request.args.get('limit', 5))
+        if limit < 1 or limit > 20:  # Enforce reasonable limits
+            limit = 5
+    except ValueError:
+        limit = 5
+        
+    # Get search results
+    results = get_search_results(query, limit)
+    
+    if not results:
+        return jsonify({
+            "query": query,
+            "results": [],
+            "count": 0,
+            "message": "No results found for your search query."
+        }), 200  # Return 200 even with no results, as the search was valid
+    
+    return jsonify({
+        "query": query,
+        "results": results,
+        "count": len(results)
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
