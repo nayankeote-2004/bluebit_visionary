@@ -1287,6 +1287,169 @@ def get_standard_recommendations(user_id):
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
+@app.route('/articles/trending', methods=['GET'])
+def get_trending_articles():
+    try:
+        # Set a limit for the number of trending articles to return
+        limit = int(request.args.get('limit', 10))
+        
+        # Initialize array to store all articles
+        all_articles = []
+        
+        # Get valid domain collections
+        valid_domains = ["nature", "education", "entertainment", "technology", 
+                        "science", "political", "lifestyle", "social", 
+                        "space", "food"]
+        
+        # Process each domain
+        for domain in valid_domains:
+            if domain in db.list_collection_names():
+                # Find articles in this domain, sorted by popularity metrics
+                domain_articles = list(db[domain].find(
+                    {}, 
+                    {
+                        "_id": 0,
+                        "id": 1, 
+                        "title": 1, 
+                        "domain": domain,
+                        "likes": 1,
+                        "comments": 1
+                    }
+                ))
+                
+                # Add domain to each article and calculate engagement score
+                for article in domain_articles:
+                    article["domain"] = domain
+                    
+                    # Count number of comments
+                    article["comment_count"] = len(article.get("comments", []))
+                    
+                    # Calculate engagement score (likes + comments*2)
+                    # Comments weighted more as they show higher engagement
+                    article["engagement_score"] = (
+                        article.get("likes", 0) + 
+                        article["comment_count"] * 2
+                    )
+                
+                all_articles.extend(domain_articles)
+        
+        # Sort by engagement score (descending)
+        trending_articles = sorted(
+            all_articles, 
+            key=lambda x: x.get("engagement_score", 0),
+            reverse=True
+        )[:limit]
+        
+        # Format the response
+        formatted_articles = []
+        for article in trending_articles:
+            formatted_articles.append({
+                "id": article["id"],
+                "title": article["title"],
+                "domain": article["domain"],
+                "likes": article.get("likes", 0),
+                "comment_count": article["comment_count"],
+                "engagement_score": article["engagement_score"]
+            })
+        
+        return jsonify({
+            "trending_articles": formatted_articles,
+            "count": len(formatted_articles)
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+
+def get_search_results(query, limit=5):
+    """
+    A specialized function to get search results from Wikipedia.
+    Returns a limited number of articles matched to the search query.
+    """
+    wiki_wiki = wikipediaapi.Wikipedia(
+        language='en',
+        user_agent='YourAppName/1.0 (https://yourwebsite.com; your-email@example.com)'
+    )
+    
+    # Search for pages related to the query
+    search_results = wikipedia.search(query, results=max(10, limit*2))  # Get more results than needed for fallback
+    data = []
+    
+    try:
+        # Process each search result
+        for page_title in search_results:
+            if len(data) >= limit:
+                break
+                
+            try:
+                # Get detailed page info using wikipediaapi
+                page = wiki_wiki.page(page_title)
+                if not page.exists():
+                    continue
+                
+                # Get image using wikipedia library
+                image_url = None
+                try:
+                    wikipedia_page = wikipedia.page(page_title, auto_suggest=False)
+                    image_url = wikipedia_page.images[0] if wikipedia_page.images else None
+                except Exception as img_error:
+                    print(f"Error getting image for {page_title}: {str(img_error)}")
+                
+                # Fetching summary with Wikipedia library
+                summary = wikipedia.summary(page_title, sentences=3, auto_suggest=False)
+                
+                # Format the response
+                data.append({
+                    "id": page.pageid,
+                    "url": page.fullurl,
+                    "title": page.title,
+                    "summary": summary,
+                    "image_url": image_url,
+                    "search_query": query,  # Add the search query for context
+                    "relevance_score": 1.0 - (search_results.index(page_title) / len(search_results))  # Simple relevance scoring
+                })
+                
+            except Exception as page_error:
+                print(f"Error processing search result {page_title}: {str(page_error)}")
+                continue
+        
+        return data if data else None
+        
+    except Exception as e:
+        print(f"An error occurred during search: {str(e)}")
+        return None
+
+@app.route('/search', methods=['GET'])
+def search_articles():
+    query = request.args.get('query')
+    if not query or len(query.strip()) < 2:
+        return jsonify({"error": "Please provide a valid search query (minimum 2 characters)"}), 400
+    
+    # Set limit with default of 5
+    try:
+        limit = int(request.args.get('limit', 5))
+        if limit < 1 or limit > 20:  # Enforce reasonable limits
+            limit = 5
+    except ValueError:
+        limit = 5
+        
+    # Get search results
+    results = get_search_results(query, limit)
+    
+    if not results:
+        return jsonify({
+            "query": query,
+            "results": [],
+            "count": 0,
+            "message": "No results found for your search query."
+        }), 200  # Return 200 even with no results, as the search was valid
+    
+    return jsonify({
+        "query": query,
+        "results": results,
+        "count": len(results)
+    }), 200
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
