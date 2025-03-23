@@ -80,25 +80,33 @@ class _AuthScreenState extends State<AuthScreen>
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    _formKey.currentState!.save();
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    final baseUrl = Config.baseUrl;
     try {
+      if (!_formKey.currentState!.validate()) return;
+
+      _formKey.currentState!.save();
+
+      setState(() {
+        _isLoading = true;
+      });
+
+      final baseUrl = Config.baseUrl;
+
       if (isLogin) {
-        final response = await http.post(
-          Uri.parse('$baseUrl/login'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'email': _authData['email'],
-            'password': _authData['password'],
-          }),
-        );
+        final response = await http
+            .post(
+              Uri.parse('$baseUrl/login'),
+              headers: {'Content-Type': 'application/json'},
+              body: json.encode({
+                'email': _authData['email'],
+                'password': _authData['password'],
+              }),
+            )
+            .timeout(
+              Duration(seconds: 10),
+              onTimeout: () {
+                throw 'Connection timed out. Please try again.';
+              },
+            );
 
         print("_authData is ${_authData}");
 
@@ -106,35 +114,36 @@ class _AuthScreenState extends State<AuthScreen>
           final responseData = json.decode(response.body);
           print("responseData is   ${responseData}");
 
-          final prefs = await SharedPreferences.getInstance();
+          try {
+            final prefs = await SharedPreferences.getInstance();
 
-          await prefs.setString('username', responseData['user']['fullName']);
-          await prefs.setString('email', responseData['user']['email']);
-          await prefs.setString('mobno', responseData['user']['phone']);
-          await prefs.setString('bio', responseData['user']['bio']);
+            await prefs.setString('username', responseData['user']['fullName']);
+            await prefs.setString('email', responseData['user']['email']);
+            await prefs.setString('mobno', responseData['user']['phone']);
+            await prefs.setString('bio', responseData['user']['bio']);
+            await prefs.setString('userId', responseData['user']['userId']);
 
-          await prefs.setString('userId', responseData['user']['userId']);
+            // Store interested domains as a JSON string
+            await prefs.setString(
+              'interestedDomains',
+              json.encode(responseData['user']['interestedDomains']),
+            );
 
-          // Store interested domains as a JSON string
-          await prefs.setString(
-            'interestedDomains',
-            json.encode(responseData['user']['interestedDomains']),
-          );
+            // Store interactions as a JSON string
+            await prefs.setString(
+              'userInteractions',
+              json.encode(responseData['user']['interactions']),
+            );
 
-          // In UserInterestPage after saving to SharedPreferences:
-          print('Saved interests to SharedPreferences: ${prefs.getString('interestedDomains')}');
-
-          // Store interactions as a JSON string
-          await prefs.setString(
-            'userInteractions',
-            json.encode(responseData['user']['interactions']),
-          );
-          
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => BottomNavBar()),
-          );
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (context) => BottomNavBar()),
+            );
+          } catch (e) {
+            throw 'Failed to save user data: $e';
+          }
         } else {
-          throw json.decode(response.body)['message'];
+          throw json.decode(response.body)['message'] ??
+              'Authentication failed';
         }
       }
     } catch (error) {
@@ -143,7 +152,9 @@ class _AuthScreenState extends State<AuthScreen>
         builder:
             (ctx) => AlertDialog(
               title: Text('Error'),
-              content: Text(error.toString()),
+              content: Text(
+                'Please wait, something went wrong.\n\n${error.toString()}',
+              ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -156,321 +167,372 @@ class _AuthScreenState extends State<AuthScreen>
             ),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   void _switchAuthMode() {
-    setState(() {
-      isLogin = !isLogin;
-    });
-    _animationController.reset();
-    _animationController.forward();
+    try {
+      setState(() {
+        isLogin = !isLogin;
+      });
+      _animationController.reset();
+      _animationController.forward();
+    } catch (error) {
+      showDialog(
+        context: context,
+        builder:
+            (ctx) => AlertDialog(
+              title: Text('Error'),
+              content: Text(
+                'Please wait, something went wrong.\n\n${error.toString()}',
+              ),
+              actions: [
+                TextButton(
+                  child: Text('Okay'),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                ),
+              ],
+            ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Get the system brightness
-    final systemBrightness =
-        View.of(context).platformDispatcher.platformBrightness;
+    try {
+      // Get the system brightness
+      final systemBrightness =
+          View.of(context).platformDispatcher.platformBrightness;
 
-    // Get theme mode from ThemeService (will follow system if not explicitly set)
-    final themeMode = _themeService.themeMode;
+      // Get theme mode from ThemeService (will follow system if not explicitly set)
+      final themeMode = _themeService.themeMode;
 
-    // Get theme details from the ThemeData in main.dart
-    final theme = Theme.of(context);
+      // Get theme details from the ThemeData in main.dart
+      final theme = Theme.of(context);
 
-    // Determine if we're in dark mode based on theme
-    final isDarkMode =
-        themeMode == ThemeMode.dark ||
-        (themeMode == ThemeMode.system && systemBrightness == Brightness.dark);
+      // Determine if we're in dark mode based on theme
+      final isDarkMode =
+          themeMode == ThemeMode.dark ||
+          (themeMode == ThemeMode.system &&
+              systemBrightness == Brightness.dark);
 
-    // Continue with your existing code
-    final primaryColor = theme.primaryColor;
-    final cardColor = theme.cardColor;
-    final textTheme = theme.textTheme;
-    final iconTheme = theme.iconTheme;
-    final screenWidth = MediaQuery.of(context).size.width;
+      // Continue with your existing code
+      final primaryColor = theme.primaryColor;
+      final cardColor = theme.cardColor;
+      final textTheme = theme.textTheme;
+      final iconTheme = theme.iconTheme;
+      final screenWidth = MediaQuery.of(context).size.width;
 
-    return Scaffold(
-      // Use scaffold background color from theme
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors:
-                isDarkMode
-                    ? [
-                      Color(
-                        0xFF101010,
-                      ), // Darker version of dark scaffold background
-                      Color(0xFF1A1A1A), // Slightly lighter dark background
-                    ]
-                    : [
-                      primaryColor.withOpacity(0.05),
-                      primaryColor.withOpacity(0.15),
-                    ],
+      return Scaffold(
+        // Use scaffold background color from theme
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors:
+                  isDarkMode
+                      ? [
+                        Color(
+                          0xFF101010,
+                        ), // Darker version of dark scaffold background
+                        Color(0xFF1A1A1A), // Slightly lighter dark background
+                      ]
+                      : [
+                        primaryColor.withOpacity(0.05),
+                        primaryColor.withOpacity(0.15),
+                      ],
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: screenWidth < 360 ? 12.0 : 16.0,
-                  vertical: 12.0,
-                ),
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: Card(
-                    elevation: 8,
-                    color: cardColor,
-                    shadowColor:
-                        isDarkMode
-                            ? Colors.black.withOpacity(0.6)
-                            : Colors.grey.withOpacity(0.4),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(
-                        color:
-                            isDarkMode
-                                ? theme
-                                    .dividerColor // Use dividerColor from theme
-                                : Colors.transparent,
-                        width: 1,
+          child: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: screenWidth < 360 ? 12.0 : 16.0,
+                    vertical: 12.0,
+                  ),
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: Card(
+                      elevation: 8,
+                      color: cardColor,
+                      shadowColor:
+                          isDarkMode
+                              ? Colors.black.withOpacity(0.6)
+                              : Colors.grey.withOpacity(0.4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(
+                          color:
+                              isDarkMode
+                                  ? theme
+                                      .dividerColor // Use dividerColor from theme
+                                  : Colors.transparent,
+                          width: 1,
+                        ),
                       ),
-                    ),
-                    child: Container(
-                      width: double.infinity,
-                      constraints: BoxConstraints(maxWidth: 400),
-                      padding: EdgeInsets.all(screenWidth < 360 ? 16.0 : 20.0),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Hero(
-                              tag: 'app_icon',
-                              child: Container(
-                                padding: EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: primaryColor.withOpacity(0.1),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: Icon(
-                                  isLogin
-                                      ? Icons.emoji_emotions_outlined
-                                      : Icons.app_registration,
-                                  size: 40,
-                                  color: primaryColor,
-                                ),
-                              ),
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              isLogin ? 'Welcome Back' : 'Create Account',
-                              style: textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 22,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              isLogin
-                                  ? 'Sign in to continue'
-                                  : 'Register to start',
-                              textAlign: TextAlign.center,
-                              style: textTheme.bodyMedium?.copyWith(
-                                fontSize: 13,
-                              ),
-                            ),
-                            SizedBox(height: 20),
-                            AnimatedContainer(
-                              duration: Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                              child: Column(
-                                children: [
-                                  if (!isLogin)
-                                    _buildTextField(
-                                      label: 'Full Name',
-                                      icon: Icons.person_outline,
-                                      validator: (value) {
-                                        if (value == null || value.isEmpty) {
-                                          return 'Please enter your name';
-                                        }
-                                        return null;
-                                      },
-                                      onSaved: (value) {
-                                        _authData['name'] = value!;
-                                        print(_authData['name']);
-                                      },
-                                      theme: theme,
-                                    ),
-                                  if (!isLogin) SizedBox(height: 12),
-                                  _buildTextField(
-                                    label: 'Email Address',
-                                    icon: Icons.email_outlined,
-                                    keyboardType: TextInputType.emailAddress,
-                                    validator: (value) {
-                                      if (value == null ||
-                                          !value.contains('@')) {
-                                        return 'Invalid email';
-                                      }
-                                      return null;
-                                    },
-                                    onSaved:
-                                        (value) => _authData['email'] = value!,
-                                    theme: theme,
+                      child: Container(
+                        width: double.infinity,
+                        constraints: BoxConstraints(maxWidth: 400),
+                        padding: EdgeInsets.all(
+                          screenWidth < 360 ? 16.0 : 20.0,
+                        ),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Hero(
+                                tag: 'app_icon',
+                                child: Container(
+                                  padding: EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: primaryColor.withOpacity(0.1),
+                                    shape: BoxShape.circle,
                                   ),
-                                  SizedBox(height: 12),
-                                  if (!isLogin)
+                                  child: Icon(
+                                    isLogin
+                                        ? Icons.emoji_emotions_outlined
+                                        : Icons.app_registration,
+                                    size: 40,
+                                    color: primaryColor,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              Text(
+                                isLogin ? 'Welcome Back' : 'Create Account',
+                                style: textTheme.displayMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 22,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                isLogin
+                                    ? 'Sign in to continue'
+                                    : 'Register to start',
+                                textAlign: TextAlign.center,
+                                style: textTheme.bodyMedium?.copyWith(
+                                  fontSize: 13,
+                                ),
+                              ),
+                              SizedBox(height: 20),
+                              AnimatedContainer(
+                                duration: Duration(milliseconds: 300),
+                                curve: Curves.easeInOut,
+                                child: Column(
+                                  children: [
+                                    if (!isLogin)
+                                      _buildTextField(
+                                        label: 'Full Name',
+                                        icon: Icons.person_outline,
+                                        validator: (value) {
+                                          if (value == null || value.isEmpty) {
+                                            return 'Please enter your name';
+                                          }
+                                          return null;
+                                        },
+                                        onSaved: (value) {
+                                          _authData['name'] = value!;
+                                          print(_authData['name']);
+                                        },
+                                        theme: theme,
+                                      ),
+                                    if (!isLogin) SizedBox(height: 12),
                                     _buildTextField(
-                                      label: 'Phone Number',
-                                      icon: Icons.phone_outlined,
-                                      keyboardType: TextInputType.phone,
-                                      inputFormatters: [
-                                        FilteringTextInputFormatter.digitsOnly,
-                                        LengthLimitingTextInputFormatter(10),
-                                      ],
+                                      label: 'Email Address',
+                                      icon: Icons.email_outlined,
+                                      keyboardType: TextInputType.emailAddress,
                                       validator: (value) {
                                         if (value == null ||
-                                            value.length < 10) {
-                                          return 'Invalid phone number';
+                                            !value.contains('@')) {
+                                          return 'Invalid email';
                                         }
                                         return null;
                                       },
                                       onSaved:
                                           (value) =>
-                                              _authData['phone'] = value!,
+                                              _authData['email'] = value!,
                                       theme: theme,
                                     ),
-                                  if (!isLogin) SizedBox(height: 12),
-                                  // Add Bio Field when signing up
-                                  if (!isLogin)
-                                    _buildTextField(
-                                      label: 'Bio',
-                                      icon: Icons.description_outlined,
-                                      keyboardType: TextInputType.multiline,
-                                      maxLines: 2,
-                                      hint: 'Tell us a bit about yourself',
-                                      validator: (value) {
-                                        // Bio is optional
-                                        return null;
-                                      },
-                                      onSaved:
-                                          (value) =>
-                                              _authData['bio'] = value ?? '',
-                                      theme: theme,
-                                    ),
-                                  if (!isLogin) SizedBox(height: 12),
-                                  _buildPasswordField(theme: theme),
-                                ],
+                                    SizedBox(height: 12),
+                                    if (!isLogin)
+                                      _buildTextField(
+                                        label: 'Phone Number',
+                                        icon: Icons.phone_outlined,
+                                        keyboardType: TextInputType.phone,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter
+                                              .digitsOnly,
+                                          LengthLimitingTextInputFormatter(10),
+                                        ],
+                                        validator: (value) {
+                                          if (value == null ||
+                                              value.length < 10) {
+                                            return 'Invalid phone number';
+                                          }
+                                          return null;
+                                        },
+                                        onSaved:
+                                            (value) =>
+                                                _authData['phone'] = value!,
+                                        theme: theme,
+                                      ),
+                                    if (!isLogin) SizedBox(height: 12),
+                                    // Add Bio Field when signing up
+                                    if (!isLogin)
+                                      _buildTextField(
+                                        label: 'Bio',
+                                        icon: Icons.description_outlined,
+                                        keyboardType: TextInputType.multiline,
+                                        maxLines: 2,
+                                        hint: 'Tell us a bit about yourself',
+                                        validator: (value) {
+                                          // Bio is optional
+                                          return null;
+                                        },
+                                        onSaved:
+                                            (value) =>
+                                                _authData['bio'] = value ?? '',
+                                        theme: theme,
+                                      ),
+                                    if (!isLogin) SizedBox(height: 12),
+                                    _buildPasswordField(theme: theme),
+                                  ],
+                                ),
                               ),
-                            ),
-                            SizedBox(height: 24),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 46,
-                              child: ElevatedButton(
-                                // onPressed: _isLoading ? null : _submit,
-                                onPressed: () async {
-                                  if (_isLoading) return;
+                              SizedBox(height: 24),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 46,
+                                child: ElevatedButton(
+                                  // onPressed: _isLoading ? null : _submit,
+                                  onPressed: () async {
+                                    try {
+                                      if (_isLoading) return;
 
-                                  if (_formKey.currentState!.validate()) {
-                                    _formKey.currentState!
-                                        .save(); // This saves the form data to _authData
+                                      if (_formKey.currentState!.validate()) {
+                                        _formKey.currentState!
+                                            .save(); // This saves the form data to _authData
 
-                                    if (isLogin) {
-                                      await _submit();
-                                    } else {
-                                      Navigator.of(context).pushReplacement(
-                                        MaterialPageRoute(
-                                          builder:
-                                              (context) => UserInterestPage(
-                                                authData: Map<
-                                                  String,
-                                                  String
-                                                >.from(
-                                                  _authData,
-                                                ), // Create a new map from _authData
+                                        if (isLogin) {
+                                          await _submit();
+                                        } else {
+                                          Navigator.of(context).pushReplacement(
+                                            MaterialPageRoute(
+                                              builder:
+                                                  (context) => UserInterestPage(
+                                                    authData: Map<
+                                                      String,
+                                                      String
+                                                    >.from(
+                                                      _authData,
+                                                    ), // Create a new map from _authData
+                                                  ),
+                                            ),
+                                          );
+                                        }
+                                      }
+                                    } catch (error) {
+                                      showDialog(
+                                        context: context,
+                                        builder:
+                                            (ctx) => AlertDialog(
+                                              title: Text('Error'),
+                                              content: Text(
+                                                'Please wait, something went wrong.\n\n${error.toString()}',
                                               ),
-                                        ),
+                                              actions: [
+                                                TextButton(
+                                                  child: Text('Okay'),
+                                                  onPressed:
+                                                      () =>
+                                                          Navigator.of(
+                                                            ctx,
+                                                          ).pop(),
+                                                ),
+                                              ],
+                                            ),
                                       );
                                     }
-                                  }
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: primaryColor,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  elevation: 2,
-                                  shadowColor: primaryColor.withOpacity(0.4),
-                                  padding: EdgeInsets.symmetric(vertical: 12),
-                                ),
-                                child:
-                                    _isLoading
-                                        ? SizedBox(
-                                          height: 20,
-                                          width: 20,
-                                          child: CircularProgressIndicator(
-                                            valueColor:
-                                                AlwaysStoppedAnimation<Color>(
-                                                  Colors.white,
-                                                ),
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                        : Text(
-                                          isLogin ? 'LOGIN' : 'SIGN UP',
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 0.8,
-                                          ),
-                                        ),
-                              ),
-                            ),
-                            SizedBox(height: 16),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  isLogin
-                                      ? 'Don\'t have an account?'
-                                      : 'Already have an account?',
-                                  style: textTheme.bodyMedium?.copyWith(
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: _switchAuthMode,
-                                  style: TextButton.styleFrom(
-                                    foregroundColor: primaryColor,
-                                    padding: EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: primaryColor,
+                                    foregroundColor: Colors.white,
                                     shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(6),
+                                      borderRadius: BorderRadius.circular(12),
                                     ),
+                                    elevation: 2,
+                                    shadowColor: primaryColor.withOpacity(0.4),
+                                    padding: EdgeInsets.symmetric(vertical: 12),
                                   ),
-                                  child: Text(
-                                    isLogin ? 'Sign Up' : 'Login',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
+                                  child:
+                                      _isLoading
+                                          ? SizedBox(
+                                            height: 20,
+                                            width: 20,
+                                            child: CircularProgressIndicator(
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    Colors.white,
+                                                  ),
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                          : Text(
+                                            isLogin ? 'LOGIN' : 'SIGN UP',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.8,
+                                            ),
+                                          ),
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    isLogin
+                                        ? 'Don\'t have an account?'
+                                        : 'Already have an account?',
+                                    style: textTheme.bodyMedium?.copyWith(
                                       fontSize: 13,
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                  TextButton(
+                                    onPressed: _switchAuthMode,
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: primaryColor,
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      isLogin ? 'Sign Up' : 'Login',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -480,8 +542,39 @@ class _AuthScreenState extends State<AuthScreen>
             ),
           ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      // Fallback UI in case of theme or other errors
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 48, color: Colors.red),
+              SizedBox(height: 16),
+              Text(
+                'Please wait, something went wrong.',
+                style: TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 8),
+              Text(
+                error.toString(),
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {}); // Try rebuilding the widget
+                },
+                child: Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildTextField({
