@@ -1,24 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:tik_tok_wikipidiea/models/post_content.dart';
-
-// Model for comment data
-class Comment {
-  final String username;
-  final String avatarUrl;
-  final String text;
-  final DateTime timestamp;
-  bool isLiked;
-  int likeCount;
-
-  Comment({
-    required this.username,
-    required this.avatarUrl,
-    required this.text,
-    required this.timestamp,
-    this.isLiked = false,
-    this.likeCount = 0,
-  });
-}
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import '../config.dart';
+import '../models/post_content.dart';
+import '../models/comment.dart';
 
 class CommentsSheet extends StatefulWidget {
   final Post post;
@@ -30,238 +15,221 @@ class CommentsSheet extends StatefulWidget {
 }
 
 class _CommentsSheetState extends State<CommentsSheet> {
-  final TextEditingController _commentController = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
-  bool _isLoading = true;
-  List<Comment> _comments = [];
+  bool isLoading = true;
+  List<Comment> comments = [];
+  String? errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _fetchComments();
+    _loadComments();
   }
 
-  @override
-  void dispose() {
-    _commentController.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  // Simulates fetching comments from a backend
-  Future<void> _fetchComments() async {
-    // Simulate network delay
-    await Future.delayed(Duration(milliseconds: 800));
-
-    // Simulated comments data that would come from backend
-    final List<Comment> fetchedComments = [
-      Comment(
-        username: "AlexReads",
-        avatarUrl: "https://i.pravatar.cc/150?img=1",
-        text:
-            "This article is very insightful. I've been searching for this kind of information for a while.",
-        timestamp: DateTime.now().subtract(Duration(hours: 2)),
-        likeCount: 15,
-      ),
-      Comment(
-        username: "BookwormSarah",
-        avatarUrl: "https://i.pravatar.cc/150?img=5",
-        text: "I disagree with some points here. The data seems outdated.",
-        timestamp: DateTime.now().subtract(Duration(hours: 5)),
-        likeCount: 3,
-      ),
-      Comment(
-        username: "HistoryBuff42",
-        avatarUrl: "https://i.pravatar.cc/150?img=11",
-        text:
-            "Thanks for sharing this! Very well written and easy to understand.",
-        timestamp: DateTime.now().subtract(Duration(days: 1)),
-        likeCount: 27,
-      ),
-      Comment(
-        username: "CuriousMind",
-        avatarUrl: "https://i.pravatar.cc/150?img=9",
-        text:
-            "I have a question about the second section. Can anyone clarify what the author means by that statement?",
-        timestamp: DateTime.now().subtract(Duration(days: 2)),
-        likeCount: 8,
-      ),
-    ];
-
-    if (mounted) {
+  Future<void> _loadComments() async {
+    try {
       setState(() {
-        _comments = fetchedComments;
-        _isLoading = false;
+        isLoading = true;
+        errorMessage = null;
       });
-    }
-  }
 
-  // Add a new comment
-  void _addComment() {
-    if (_commentController.text.trim().isEmpty) return;
-
-    setState(() {
-      _comments.insert(
-        0,
-        Comment(
-          username: "You", // In a real app, get from user profile
-          avatarUrl:
-              "https://i.pravatar.cc/150?img=12", // In a real app, get from user profile
-          text: _commentController.text.trim(),
-          timestamp: DateTime.now(),
-          likeCount: 0,
+      final baseUrl = Config.baseUrl;
+      final response = await http.get(
+        Uri.parse(
+          '$baseUrl/domains/${widget.post.domain}/articles/${widget.post.id}/comments',
         ),
       );
-      _commentController.clear();
-    });
 
-    // Hide keyboard after submitting
-    _focusNode.unfocus();
-  }
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        print(data);
+        final fetchedComments =
+            (data['comments'] as List)
+                .map((comment) => Comment.fromJson(comment))
+                .toList();
 
-  // Format timestamp to relative time string
-  String _formatTimestamp(DateTime timestamp) {
-    final difference = DateTime.now().difference(timestamp);
-
-    if (difference.inDays > 7) {
-      return "${timestamp.day}/${timestamp.month}/${timestamp.year}";
-    } else if (difference.inDays > 0) {
-      return "${difference.inDays}d ago";
-    } else if (difference.inHours > 0) {
-      return "${difference.inHours}h ago";
-    } else if (difference.inMinutes > 0) {
-      return "${difference.inMinutes}m ago";
-    } else {
-      return "Just now";
+        setState(() {
+          comments = fetchedComments;
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          errorMessage = 'Failed to load comments';
+          isLoading = false;
+        });
+      }
+    } catch (error) {
+      setState(() {
+        errorMessage = 'Error loading comments: ${error.toString()}';
+        isLoading = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
       children: [
-        // Header
+        // Comments header
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          padding: const EdgeInsets.all(16.0),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                "Comments",
-                style: theme.textTheme.titleLarge?.copyWith(
+                'Comments (${comments.length})',
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               IconButton(
-                icon: Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
+                icon: Icon(Icons.refresh),
+                onPressed: _loadComments,
+                tooltip: 'Refresh comments',
               ),
             ],
           ),
         ),
-        Divider(),
 
-        // Comments list or loading indicator - inside Expanded to allow it to shrink
+        Divider(height: 1),
+
+        // Comments list with loading/error states
         Expanded(
           child:
-              _isLoading
+              isLoading
                   ? Center(child: CircularProgressIndicator())
-                  : _comments.isEmpty
-                  ? _buildEmptyCommentsView(theme)
+                  : errorMessage != null
+                  ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 48, color: Colors.red),
+                        SizedBox(height: 16),
+                        Text(
+                          errorMessage!,
+                          style: TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 16),
+                        ElevatedButton(
+                          onPressed: _loadComments,
+                          child: Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  )
+                  : comments.isEmpty
+                  ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 48,
+                          color: Colors.grey,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'No comments yet',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Be the first to share your thoughts!',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  )
                   : ListView.builder(
-                    padding: EdgeInsets.only(bottom: 8),
-                    itemCount: _comments.length,
+                    itemCount: comments.length,
+                    padding: EdgeInsets.symmetric(horizontal: 16),
                     itemBuilder: (context, index) {
-                      final comment = _comments[index];
-                      return _buildCommentItem(comment, theme, isDarkMode);
+                      final comment = comments[index];
+
+                      return Container(
+                        margin: EdgeInsets.symmetric(vertical: 8),
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color:
+                              isDarkMode ? Colors.grey[850] : Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 5,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // User info and timestamp
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: theme.primaryColor.withOpacity(
+                                          0.2,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Center(
+                                        child: Text(
+                                          comment.userName.isNotEmpty
+                                              ? comment.userName
+                                                  .substring(0, 1)
+                                                  .toUpperCase()
+                                              : 'A',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            color: theme.primaryColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      comment.userName,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (comment.timestamp != null)
+                                  Text(
+                                    comment.timestamp!,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                              ],
+                            ),
+
+                            SizedBox(height: 8),
+
+                            // Comment content
+                            Text(
+                              comment.text,
+                              style: TextStyle(fontSize: 14, height: 1.3),
+                            ),
+                          ],
+                        ),
+                      );
                     },
                   ),
         ),
-
-        // Remove the divider and input field from here as they're in the parent widget now
       ],
-    );
-  }
-
-  Widget _buildEmptyCommentsView(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.chat_bubble_outline,
-              size: 48,
-              color: theme.iconTheme.color?.withOpacity(0.5),
-            ),
-            SizedBox(height: 16),
-            Text("No comments yet", style: theme.textTheme.titleMedium),
-            SizedBox(height: 8),
-            Text(
-              "Be the first to share your thoughts!",
-              style: theme.textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCommentItem(Comment comment, ThemeData theme, bool isDarkMode) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // User avatar
-          CircleAvatar(
-            radius: 20,
-            backgroundImage: NetworkImage(comment.avatarUrl),
-            backgroundColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
-          ),
-          SizedBox(width: 12),
-
-          // Comment content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Username and timestamp
-                Row(
-                  children: [
-                    Text(
-                      comment.username,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Text(
-                      _formatTimestamp(comment.timestamp),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 4),
-
-                // Comment text
-                Text(comment.text, style: theme.textTheme.bodyMedium),
-
-                // Removed like button, count and reply option
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

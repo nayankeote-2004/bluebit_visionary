@@ -409,19 +409,29 @@ class _ScrollScreenState extends State<ScrollScreen> {
           '$baseUrl/domains/${post.domain}/articles/${post.id}/comment',
         ),
         headers: {'Content-Type': 'application/json'},
-        body: json.encode({'userId': userId, 'comment': commentText}),
+        body: json.encode({
+          'userId':
+              userId, // Make sure this matches the API expectation (user_id not userId)
+          'comment': commentText, // Use text instead of comment
+        }),
       );
 
       if (response.statusCode == 200) {
-        setState(() {
-          post.comments.add(commentText);
-        });
+        // Close the current comments sheet
+        Navigator.pop(context);
+
+        // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Comment added successfully'),
             backgroundColor: Colors.green,
           ),
         );
+
+        // Reopen comments to refresh the list
+        Future.delayed(Duration(milliseconds: 300), () {
+          _showComments(post);
+        });
       } else {
         throw Exception('Failed to add comment');
       }
@@ -436,7 +446,8 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
-  // Update the _showComments method to fix the overflow issue
+  // Replace your existing _showComments method with this updated version:
+
   void _showComments(Post post) {
     final TextEditingController commentController = TextEditingController();
 
@@ -457,10 +468,21 @@ class _ScrollScreenState extends State<ScrollScreen> {
               ),
               child: Column(
                 children: [
-                  // Flexible wrapper for the comments list to allow it to resize
+                  // Drag handle
+                  Container(
+                    margin: EdgeInsets.only(top: 8),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[400],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+
+                  // Dynamic comments widget
                   Expanded(child: CommentsSheet(post: post)),
 
-                  // Fixed-height comment input area
+                  // Comment input area
                   Container(
                     padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
@@ -479,7 +501,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                             controller: commentController,
                             decoration: InputDecoration(
                               hintText: 'Add a comment...',
-                              isDense: true, // Reduces the overall height
+                              isDense: true,
                               contentPadding: EdgeInsets.symmetric(
                                 horizontal: 16,
                                 vertical: 8,
@@ -488,16 +510,16 @@ class _ScrollScreenState extends State<ScrollScreen> {
                                 borderRadius: BorderRadius.circular(20),
                               ),
                             ),
-                            maxLines: 1, // Restrict to single line
+                            maxLines: 1,
                           ),
                         ),
                         IconButton(
                           icon: Icon(Icons.send),
+                          color: Theme.of(context).primaryColor,
                           onPressed: () async {
                             if (commentController.text.isNotEmpty) {
                               await _addComment(post, commentController.text);
                               commentController.clear();
-                              Navigator.pop(context);
                             }
                           },
                         ),
