@@ -1031,57 +1031,8 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             SizedBox(height: 12),
 
-                            // Bookmarks - clickable stat that navigates to bookmarks page
-                            InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => BookmarksPage(),
-                                  ),
-                                );
-                              },
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(vertical: 4),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text(
-                                          'Bookmarks',
-                                          style: theme.textTheme.bodyMedium,
-                                        ),
-                                        SizedBox(width: 4),
-                                        Icon(
-                                          Icons.arrow_forward_ios,
-                                          size: 12,
-                                          color: theme.iconTheme.color,
-                                        ),
-                                      ],
-                                    ),
-                                    Text(
-                                      '15', // This would come from bookmarks service
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: theme.primaryColor,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            SizedBox(height: 12),
 
-                            // Comments - use real count
-                            _buildStatRow(
-                              'Comments',
-                              commentedCount.toString(),
-                              theme,
-                            ),
-                          ],
+                         ],
                         ),
                       ),
                     ),
@@ -1152,10 +1103,14 @@ class _ProfilePageState extends State<ProfilePage> {
       onTap: () {
         // Navigate based on which stat was clicked
         if (label == 'Liked') {
-          // Navigate to milestones page instead of liked articles
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => LikedArticlesPage()),
+            MaterialPageRoute(
+              builder:
+                  (context) => LikedArticlesPage(
+                    likedArticles: userInteractions['likedArticles'] ?? [],
+                  ),
+            ),
           );
         } else if (label == 'Comments') {
           Navigator.push(

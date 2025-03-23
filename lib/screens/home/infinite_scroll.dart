@@ -74,6 +74,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
   final String _defaultImage =
       'https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?q=80&w=1000';
 
+  // Add this to the class variables
+  bool _isBertLoading = false;
+  List<Post> _bertRecommendedPosts = [];
+  bool _bertFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -127,12 +132,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
     try {
       final baseUrl = Config.baseUrl;
       final response = await http.get(
-        Uri.parse('$baseUrl/user/$userId/recommended-articles'),
+        Uri.parse('$baseUrl/user/$userId/standard-recommendations'),
       );
 
       if (response.statusCode == 200) {
         final List<dynamic> articlesJson =
-            json.decode(response.body)['recommendedArticles'];
+            json.decode(response.body)['standardRecommendedArticles'];
 
         // First, parse all posts from the API response
         final List<Post> fetchedPosts =
@@ -304,7 +309,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
     setState(() {
       isLoading = true;
     });
-    await _fetchRecommendedArticles();
+    await _fetchPosts();
   }
 
   // Add this function to the _ScrollScreenState class
@@ -734,6 +739,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
                     _isSwipingRight = false;
                   }
                 },
+                // Add double tap detector with key to separate from other gestures
+                onDoubleTap: () {
+                  HapticFeedback.mediumImpact();
+                  _showFunFactDialog(post, context);
+                },
                 child: Container(
                   padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
                   child: Column(
@@ -964,5 +974,377 @@ class _ScrollScreenState extends State<ScrollScreen> {
     _autoScrollService.removeListener(_updateAutoScroll);
 
     super.dispose();
+  }
+
+  // Method to show fun fact dialog with enhanced design
+  void _showFunFactDialog(Post post, BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    // Generate a fun fact based on post content
+    String funFact = _generateFunFact(post);
+
+    // Play a subtle sound effect for the "boom"
+    SystemSound.play(SystemSoundType.click);
+    HapticFeedback.mediumImpact();
+
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: "Fun Fact",
+      pageBuilder: (context, animation1, animation2) => Container(),
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        // Create boom animation with a bounce effect
+        var curve = CurvedAnimation(
+          parent: animation,
+          curve: Curves.elasticOut,
+        );
+
+        return ScaleTransition(
+          scale: Tween<double>(begin: 0.3, end: 1.0).animate(curve),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0.0, end: 1.0).animate(animation),
+            child: Dialog(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors:
+                        isDarkMode
+                            ? [Color(0xFF1E2A3A), Color(0xFF152238)]
+                            : [Color(0xFFF0F8FF), Color(0xFFE1EBEE)],
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black38 : Colors.black12,
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                      offset: Offset(0, 5),
+                    ),
+                  ],
+                  border: Border.all(
+                    color: theme.primaryColor.withOpacity(0.5),
+                    width: 2,
+                  ),
+                ),
+                padding: EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header with icon
+                    Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: theme.primaryColor.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.lightbulb,
+                            color: theme.primaryColor,
+                            size: 30,
+                          ),
+                        ),
+                        SizedBox(width: 15),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Did You Know?',
+                                style: TextStyle(
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white
+                                          : Colors.black87,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 20,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              Text(
+                                'Fun Fact from ${post.domain.toUpperCase()}',
+                                style: TextStyle(
+                                  color:
+                                      isDarkMode
+                                          ? Colors.white70
+                                          : Colors.black54,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 20),
+
+                    // Divider with decorative elements
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  theme.primaryColor.withOpacity(0.1),
+                                  theme.primaryColor,
+                                  theme.primaryColor.withOpacity(0.1),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: theme.primaryColor,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            height: 1,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  theme.primaryColor,
+                                  theme.primaryColor.withOpacity(0.1),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    SizedBox(height: 20),
+
+                    // Fact content
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color:
+                            isDarkMode
+                                ? Colors.black.withOpacity(0.2)
+                                : Colors.white.withOpacity(0.7),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDarkMode ? Colors.white24 : Colors.black12,
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        funFact,
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                          height: 1.4,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 24),
+
+                    // Action button
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 30,
+                          vertical: 12,
+                        ),
+                        elevation: 5,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_outline, size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            'Awesome!',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionDuration: Duration(milliseconds: 600),
+    );
+  }
+
+  // Helper to generate a fun fact from post content
+  String _generateFunFact(Post post) {
+    // Try to extract an interesting fact from the article
+    if (post.summary.length > 50) {
+      // Look for interesting sentences in the summary
+      List<String> sentences = post.summary.split('. ');
+
+      // Try to find a sentence with interesting keywords
+      for (String sentence in sentences) {
+        if (sentence.contains("interesting") ||
+            sentence.contains("fact") ||
+            sentence.contains("discovered") ||
+            sentence.contains("surprising") ||
+            sentence.contains("research") ||
+            sentence.contains("scientist")) {
+          return sentence + ".";
+        }
+      }
+
+      // If we have sections, try the first section
+      if (post.sections.isNotEmpty && post.sections.first.content.length > 50) {
+        sentences = post.sections.first.content.split('. ');
+        for (String sentence in sentences) {
+          if (sentence.length > 40 && sentence.length < 200) {
+            return sentence + ".";
+          }
+        }
+      }
+
+      // If no interesting sentence found, return a random sentence from the summary
+      if (sentences.length > 1) {
+        return sentences[Random().nextInt(sentences.length - 1)] + ".";
+      }
+      return sentences.first + ".";
+    }
+
+    // Fallback to a generic fun fact based on the title
+    return "Did you know? The topic \"${post.title}\" has been researched extensively and continues to fascinate experts in the field of ${post.domain}.";
+  }
+
+  // Update the fetchPosts method to handle sequential API calls
+  Future<void> _fetchPosts() async {
+    setState(() {
+      isLoading = true;
+      _isBertLoading = true;
+    });
+
+    try {
+      // Get user ID from shared preferences
+      final prefs = await SharedPreferences.getInstance();
+      userId = prefs.getString('userId');
+
+      if (userId == null) {
+        setState(() {
+          isLoading = false;
+          _isBertLoading = false;
+        });
+        return;
+      }
+
+      // First fetch standard recommendations
+      final standardResponse = await http.get(
+        Uri.parse('${Config.baseUrl}/user/$userId/standard-recommendations'),
+      );
+
+      if (standardResponse.statusCode == 200) {
+        final data = json.decode(standardResponse.body);
+        final standardArticles = data['standardRecommendedArticles'] as List;
+
+        setState(() {
+          posts =
+              standardArticles
+                  .map<Post>((article) => Post.fromJson(article))
+                  .toList();
+          isLoading = false;
+        });
+        print("Before bert : ${posts.length}");
+        // After standard recommendations load, fetch BERT recommendations in background
+        await _fetchBertRecommendations();
+
+        print("after bert : ${posts.length}");
+      } else {
+        setState(() {
+          isLoading = false;
+          _isBertLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error fetching posts: $e');
+      setState(() {
+        isLoading = false;
+        _isBertLoading = false;
+      });
+    }
+  }
+
+  // New method to fetch BERT recommendations separately
+  Future<void> _fetchBertRecommendations() async {
+    if (userId == null) return;
+
+    try {
+      final bertResponse = await http.get(
+        Uri.parse('${Config.baseUrl}/user/$userId/bert-recommendations'),
+      );
+
+      if (bertResponse.statusCode == 200) {
+        final data = json.decode(bertResponse.body);
+        final bertArticles = data['bertRecommendedArticles'] as List;
+
+        setState(() {
+          _bertRecommendedPosts =
+              bertArticles
+                  .map<Post>((article) => Post.fromJson(article))
+                  .toList();
+          _isBertLoading = false;
+
+          // Now merge BERT recommendations with standard posts
+          // Add BERT posts at the beginning or intersperse them
+          if (_bertRecommendedPosts.isNotEmpty) {
+            // Create a new list with BERT recommendations first
+            List<Post> allPosts = [..._bertRecommendedPosts];
+
+            // Add standard posts that aren't duplicates of BERT posts
+            for (Post post in posts) {
+              if (!_bertRecommendedPosts.any(
+                (bertPost) => bertPost.id == post.id,
+              )) {
+                allPosts.add(post);
+              }
+            }
+
+            posts = allPosts;
+          }
+        });
+      } else {
+        setState(() {
+          _isBertLoading = false;
+          _bertFailed = true;
+        });
+      }
+    } catch (e) {
+      print('Error fetching BERT recommendations: $e');
+      setState(() {
+        _isBertLoading = false;
+        _bertFailed = true;
+      });
+    }
   }
 }
