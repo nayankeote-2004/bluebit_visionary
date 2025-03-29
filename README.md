@@ -7,6 +7,47 @@
 
 **Wiki-Tok** is an innovative cross-platform mobile application that combines the power of Wikipedia's vast knowledge base with social media engagement features, creating an immersive and interactive knowledge-sharing experience enhanced by AI.
 
+## 📱 App Demo
+
+<div align="center">
+  <div style="background: linear-gradient(135deg, #6e8efb, #a777e3); padding: 20px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.2); margin: 20px 0;">
+    <h3 style="color: white; font-weight: 700; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1.2px;">✨ WATCH THE DEMO ✨</h3>
+    <a href="https://drive.google.com/drive/folders/19Haq7_FkI4E9L8QZbTTBMY3jIJ9xlQws?usp=sharing" target="_blank">
+      <img src="assets/video-thumbneil.png" alt="Wiki-Tok Demo Video" width="680" style="border-radius: 8px; border: 3px solid white; transition: transform 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3);" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'"/>
+    </a>
+    <p style="background-color: rgba(255,255,255,0.9); color: #333; font-size: 16px; font-weight: 600; padding: 12px 20px; border-radius: 30px; display: inline-block; margin-top: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+      <span style="color: #6e8efb;">▶️</span> <em>Click to experience Wiki-Tok in action!</em> <span style="color: #a777e3;">🔥</span>
+    </p>
+  </div>
+</div>
+
+## 🖼️ UI Showcase
+
+<div align="center">
+  <div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 20px;">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot1.jpg" alt="Home Feed" width="220"/>
+      <p><strong>Home Feed</strong> - Infinite scrolling with AI-curated content</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot2.jpg" alt="Article View" width="220"/>
+      <p><strong>Article Fun Fact Audio</strong> - Immersive Fun Fact and reading experience with audio</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot3.jpg" alt="Search & Explore" width="220"/>
+      <p><strong>Search & Explore</strong> - Discover new knowledge</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot4.jpg" alt="User Profile" width="220"/>
+      <p><strong>User Profile</strong> - Achievements and reading stats</p>
+    </div>
+    <div style="text-align: center; margin-bottom: 20px;">
+      <img src="assets/screenshot5.jpg" alt="User Profile" width="220"/>
+      <p><strong>Treanding Articles</strong> - Treading Articles on the basis of Likes , Share and Comments</p>
+    </div>
+  </div>
+</div>
+
 ## Table of Contents
 
 - [Features](#features)
