@@ -176,7 +176,7 @@ class _Search_screenState extends State<Search_screen>
 
     try {
       final response = await http.get(
-        Uri.parse('http://192.168.55.12:5000/wiki/trending'),
+        Uri.parse('${Config.baseUrl}/wiki/trending'),
       );
 
       if (response.statusCode == 200) {
@@ -253,10 +253,23 @@ class _Search_screenState extends State<Search_screen>
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-
         title: Row(
           children: [
-            Icon(Icons.auto_stories, size: 24),
+            // Replace the static icon with a GIF
+            Container(
+              width: 120,
+              height: 120,
+              child: Image.asset(
+                'assets/search1.gif',
+                fit: BoxFit.contain,
+                
+                errorBuilder: (context, error, stackTrace) {
+                  // Fallback to the original icon if the GIF fails to load
+                  print('Error loading GIF: $error');
+                  return Icon(Icons.auto_stories, size: 24);
+                },
+              ),
+            ),
             SizedBox(width: 10),
             Text(
               'WikiDiscover',
@@ -808,7 +821,6 @@ class _Search_screenState extends State<Search_screen>
 
               SizedBox(height: 16),
 
-
               Container(
                 decoration: BoxDecoration(
                   color: Colors.grey.withOpacity(0.2),
@@ -903,7 +915,6 @@ class _Search_screenState extends State<Search_screen>
     } else if (_globalTrendingTopics.isEmpty) {
       return _buildEmptyTrendingState();
     } else {
-
       final indianTrendingTopics = _globalTrendingTopics.take(10).toList();
       final globalTrendingTopics = _globalTrendingTopics.skip(10).toList();
 
@@ -1302,9 +1313,10 @@ class _Search_screenState extends State<Search_screen>
     required bool isIndian,
   }) {
     // Generate a color based on the region and rank
-    final Color itemColor = isIndian 
-        ? _getIndianTrendingColor(topic.rank ?? 0)  // Handle null rank
-        : _getGlobalTrendingColor(topic.rank ?? 0);
+    final Color itemColor =
+        isIndian
+            ? _getIndianTrendingColor(topic.rank ?? 0) // Handle null rank
+            : _getGlobalTrendingColor(topic.rank ?? 0);
 
     // Format view count for better readability
     final String formattedViews = _formatViewCount(topic.views ?? 0);
@@ -1327,8 +1339,8 @@ class _Search_screenState extends State<Search_screen>
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () {
-            if (topic.title != null && topic.title!.isNotEmpty) {
-              _performSearch(topic.title!);
+            if (topic.title != null && topic.title.isNotEmpty) {
+              _performSearch(topic.title);
             }
           },
           child: Container(

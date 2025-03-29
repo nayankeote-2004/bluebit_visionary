@@ -22,4 +22,14 @@ class Comment {
       userName: json['user_name'] ?? 'Anonymous',
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'text': text,
+      'username': userName,
+      'createdAt': timestamp,
+      // Add any other properties your Comment class has
+    };
+  }
 }

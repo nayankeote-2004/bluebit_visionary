@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:tik_tok_wikipidiea/navigations/bottom_navbar.dart';
 
@@ -20,6 +21,7 @@ class _UserInterestPageState extends State<UserInterestPage>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+  bool _isLoading = false; // Add this line to track loading state
 
   // List to store all available interests with their associated network images
   final List<Map<String, dynamic>> _allInterests = [
@@ -203,59 +205,111 @@ class _UserInterestPageState extends State<UserInterestPage>
                   height: 52,
                   child: ElevatedButton(
                     onPressed:
-                        interestList.isNotEmpty
+                        interestList.isNotEmpty && !_isLoading
                             ? () async {
-                              final baseUrl =
-                                  Config
-                                      .baseUrl; // Replace with your actual base URL
-                              final signupEndpoint = '$baseUrl/signup';
-                              print(widget.authData);
-                              final signupData = {
-                                'fullName': widget.authData['name'],
-                                'email': widget.authData['email'],
-                                'phone': widget.authData['phone'],
-                                'password': widget.authData['password'],
-                                'bio': widget.authData['bio'],
-                                'interestedDomains': interestList
-                              };
+                              setState(() {
+                                _isLoading =
+                                    true; // Set loading to true when button is pressed
+                              });
 
-                              final response = await http.post(
-                                Uri.parse(signupEndpoint),
-                                headers: {'Content-Type': 'application/json'},
-                                body: json.encode(signupData),
-                              );
+                              try {
+                                final baseUrl = Config.baseUrl;
+                                final signupEndpoint = '$baseUrl/signup';
+                                print(widget.authData);
+                                final signupData = {
+                                  'fullName': widget.authData['name'],
+                                  'email': widget.authData['email'],
+                                  'phone': widget.authData['phone'],
+                                  'password': widget.authData['password'],
+                                  'bio': widget.authData['bio'],
+                                  'interestedDomains': interestList,
+                                };
 
-                              if (response.statusCode == 201) {
+                                final response = await http.post(
+                                  Uri.parse(signupEndpoint),
+                                  headers: {'Content-Type': 'application/json'},
+                                  body: json.encode(signupData),
+                                );
+
+                                if (response.statusCode == 201) {
+                                  // Parse the response data
+                                  final responseData = json.decode(
+                                    response.body,
+                                  );
+
+                                  // Store user data in SharedPreferences
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+
+                                  await prefs.setString(
+                                    'username',
+                                    responseData['user']['fullName'],
+                                  );
+                                  await prefs.setString(
+                                    'email',
+                                    responseData['user']['email'],
+                                  );
+                                  await prefs.setString(
+                                    'mobno',
+                                    responseData['user']['phone'],
+                                  );
+                                  await prefs.setString(
+                                    'bio',
+                                    responseData['user']['bio'] ?? '',
+                                  );
+                                  await prefs.setString(
+                                    'userId',
+                                    responseData['userId'],
+                                  );
+
+                                  // Store interested domains as a JSON string
+                                  await prefs.setString(
+                                    'interestedDomains',
+                                    json.encode(
+                                      responseData['user']['interestedDomains'],
+                                    ),
+                                  );
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Registration successful!'),
+                                      backgroundColor:
+                                          Theme.of(context).primaryColor,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                    ),
+                                  );
+
+                                  print('Selected interests: $interestList');
+                                  Navigator.of(context).pushReplacement(
+                                    MaterialPageRoute(
+                                      builder: (context) => BottomNavBar(),
+                                    ),
+                                  );
+                                } else {
+                                  print(json.decode(response.body)['error']);
+                                  throw Exception(
+                                    json.decode(response.body)['error'],
+                                  );
+                                }
+                              } catch (error) {
+                                // Show error message
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text(
-                                      'Registration successful!',
-                                    ),
-                                    backgroundColor:
-                                        Theme.of(context).primaryColor,
+                                    content: Text('Error: ${error.toString()}'),
+                                    backgroundColor: Colors.red,
                                     behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
                                   ),
                                 );
-
-                                // Remove isLogin as it's not defined in this class
-                                // setState(() {
-                                //   isLogin = true;
-                                // });
-
-                                print('Selected interests: $interestList');
-                                Navigator.of(context).pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (context) => BottomNavBar(),
-                                  ),
-                                );
-                              } else {
-                                print(json.decode(response.body)['error']);
-                                throw Exception(
-                                  json.decode(response.body)['error'],
-                                );
+                              } finally {
+                                if (mounted) {
+                                  setState(() {
+                                    _isLoading =
+                                        false; // Set loading back to false
+                                  });
+                                }
                               }
                             }
                             : null,
@@ -268,14 +322,24 @@ class _UserInterestPageState extends State<UserInterestPage>
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: Text(
-                      'CONTINUE',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
+                    child:
+                        _isLoading
+                            ? SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                            : Text(
+                              'CONTINUE',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
                   ),
                 ),
               ),

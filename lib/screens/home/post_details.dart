@@ -5,6 +5,9 @@ import 'package:tik_tok_wikipidiea/config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tik_tok_wikipidiea/services/gemini_service.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:tik_tok_wikipidiea/services/pdf_service.dart';
 
 class DetailScreen extends StatefulWidget {
   final Post post;
@@ -23,7 +26,6 @@ class _DetailScreenState extends State<DetailScreen> {
   final double _appBarTitleThreshold = 250.0;
   String? userId;
 
-  // Fallback images for different domains
   // Fallback images for different domains
   final Map<String, String> _domainImages = {
     'nature':
@@ -58,6 +60,9 @@ class _DetailScreenState extends State<DetailScreen> {
     _loadUserId();
     _loadArticleSections();
     _scrollController.addListener(_onScroll);
+
+    // Clear old conversations when entering a new article
+    GeminiService.clearOldConversations(widget.post.id);
   }
 
   @override
@@ -95,35 +100,149 @@ class _DetailScreenState extends State<DetailScreen> {
     return _domainImages[normalizedDomain] ?? _defaultImage;
   }
 
-  // Add share article function
   Future<void> _shareArticle() async {
     try {
-      if (userId == null) return;
+      HapticFeedback.mediumImpact();
 
-      final baseUrl = Config.baseUrl;
-      final response = await http.post(
-        Uri.parse(
-          '$baseUrl/domains/${widget.post.domain}/articles/${widget.post.id}/share',
-        ),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({'userId': userId}),
-      );
+      // Extract a fun fact from the summary or first section content
+      String funFact =
+          widget.post.funFact.isNotEmpty
+              ? widget.post.funFact
+              : widget.post.summary.isNotEmpty
+              ? widget.post.summary.split('.').first
+              : 'No fun fact available.';
 
-      if (response.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Article shared successfully'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      } else {
-        throw Exception('Failed to share article');
-      }
+      // Construct the Wikipedia URL (assuming it follows standard format)
+      final wikiTitle = widget.post.title.replaceAll(' ', '_');
+      final wikipediaUrl = 'https://en.wikipedia.org/wiki/$wikiTitle';
+
+      // App download link
+      const appLink =
+          'https://drive.google.com/drive/folders/19Haq7_FkI4E9L8QZbTTBMY3jIJ9xlQws?usp=drive_link';
+
+      // Build share text
+      final shareText = '''
+📚 ${widget.post.title}
+
+🤔 Fun Fact: $funFact
+
+🔍 Read more: $wikipediaUrl
+
+📱 Get WikiTok app: $appLink
+''';
+
+      await Share.share(shareText);
     } catch (error) {
       print('Error sharing article: $error');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to share article'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _downloadArticlePdf() async {
+    try {
+      HapticFeedback.mediumImpact();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Generating PDF...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      String result = await PdfService.generateArticlePdf(
+        widget.post,
+        sections,
+        context: context,
+        letUserChooseLocation: true,
+      );
+
+      // If PDF was saved successfully, extract the file path
+      String? filePath;
+      if (result.startsWith("PDF saved successfully to:")) {
+        filePath =
+            result.substring("PDF saved successfully to: ".length).trim();
+      }
+
+      // Show the result message with actions for the saved file
+      if (filePath != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('PDF generated successfully!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 6),
+            action: SnackBarAction(
+              label: 'SHARE',
+              textColor: Colors.white,
+              onPressed: () {
+                PdfService.shareFile(filePath!, context);
+              },
+            ),
+          ),
+        );
+
+        // Also show a dialog with more information about the file location
+        showDialog(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: Text('PDF Downloaded'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Your article has been saved as a PDF.'),
+                    SizedBox(height: 8),
+                    Text('File saved to:'),
+                    SizedBox(height: 4),
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(filePath!, style: TextStyle(fontSize: 12)),
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      'You can find this file in your device\'s File Manager or Downloads folder.',
+                      style: TextStyle(fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text('CLOSE'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      PdfService.shareFile(filePath!, context);
+                    },
+                    child: Text('SHARE PDF'),
+                  ),
+                ],
+              ),
+        );
+      } else {
+        // Error case
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (error) {
+      print('Error generating PDF: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to generate PDF'),
           backgroundColor: Colors.red,
         ),
       );
@@ -169,6 +288,30 @@ class _DetailScreenState extends State<DetailScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      // Add floating action buttons
+      floatingActionButton: Column(
+        mainAxisAlignment: MainAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Download PDF button
+          FloatingActionButton.small(
+            heroTag: "downloadPdf",
+            onPressed: _downloadArticlePdf,
+            backgroundColor: theme.primaryColor.withOpacity(0.85),
+            child: Icon(Icons.download_rounded, color: Colors.white),
+            tooltip: 'Download PDF',
+          ),
+          SizedBox(height: 12),
+          // Share button
+          FloatingActionButton.small(
+            heroTag: "shareArticle",
+            onPressed: _shareArticle,
+            backgroundColor: theme.primaryColor.withOpacity(0.85),
+            child: Icon(Icons.share, color: Colors.white),
+            tooltip: 'Share Article',
+          ),
+        ],
+      ),
       body: SafeArea(
         child: CustomScrollView(
           controller: _scrollController,
@@ -294,7 +437,9 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
                 onPressed: () => Navigator.pop(context),
               ),
+              // Keep only the Gemini AI button
               actions: [
+                // Gemini AI button
                 IconButton(
                   icon: Container(
                     padding: EdgeInsets.all(8),
@@ -306,11 +451,14 @@ class _DetailScreenState extends State<DetailScreen> {
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      Icons.share,
+                      Icons.smart_toy_outlined,
                       color: isDarkMode ? Colors.white : Colors.black87,
                     ),
                   ),
-                  onPressed: _shareArticle,
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    GeminiService.showGeminiAssistant(context, widget.post);
+                  },
                 ),
                 SizedBox(width: 8),
               ],

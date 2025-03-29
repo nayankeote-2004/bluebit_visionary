@@ -1,4 +1,4 @@
 class Config {
-  static final String baseUrl = 'http://192.168.55.12:5000';
+  static final String baseUrl = 'http://192.168.137.10:5000';
   
 }

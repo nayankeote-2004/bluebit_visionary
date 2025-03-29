@@ -12,6 +12,10 @@ import 'package:tik_tok_wikipidiea/services/bookmark_services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart'; // Added Google Mobile Ads
+import 'package:connectivity_plus/connectivity_plus.dart'; // Add this import for connectivity check
+import 'package:tik_tok_wikipidiea/services/connectivity_service.dart';
+import 'package:tik_tok_wikipidiea/services/gemini_explanation_service.dart'; // Added Gemini Explanation Service
 
 class ScrollScreen extends StatefulWidget {
   const ScrollScreen({super.key});
@@ -20,7 +24,8 @@ class ScrollScreen extends StatefulWidget {
   _ScrollScreenState createState() => _ScrollScreenState();
 }
 
-class _ScrollScreenState extends State<ScrollScreen> {
+class _ScrollScreenState extends State<ScrollScreen>
+    with WidgetsBindingObserver {
   List<Post> posts = [];
   bool isLoading = true;
   String? userId;
@@ -30,6 +35,10 @@ class _ScrollScreenState extends State<ScrollScreen> {
   final int _postsPerPage = 10;
   bool _hasMorePosts = true;
   bool _isLoadingMore = false;
+
+  // Ad-related variables
+  final Map<int, BannerAd?> _bannerAds = {};
+  final Map<int, bool> _isAdReady = {};
 
   // Keys for SharedPreferences storage
   final String _readArticlesKey = 'read_articles_today';
@@ -98,19 +107,138 @@ class _ScrollScreenState extends State<ScrollScreen> {
   bool _loadMoreError = false;
   String _errorMessage = '';
 
+  // Add these variables for offline support
+  final String _cachedPostsKey = 'cached_posts';
+  final int _maxCachedPosts = 100; // Maximum posts to cache
+
+  // Add this variable to _ScrollScreenState class
+  OverlayEntry? _overlayEntry;
+  Timer? _overlayTimer;
+
+  // Add connectivity service
+  final ConnectivityService _connectivityService = ConnectivityService();
+  StreamSubscription<bool>? _connectivitySubscription;
+  bool _isOffline = false;
+
+  // Add this to the _ScrollScreenState class
+  // Previous offline status to detect changes
+  bool _previousOfflineStatus = false;
+
   @override
   void initState() {
     super.initState();
+
+    // Initialize previous status
+    _previousOfflineStatus = _connectivityService.isOffline;
+
+    // Listen to connectivity changes with improved logic
+    _connectivitySubscription = _connectivityService.connectivityStream.listen((
+      isOffline,
+    ) {
+      print('Connectivity changed: ${isOffline ? "Offline" : "Online"}');
+
+      if (mounted) {
+        // Check if state actually changed
+        if (_previousOfflineStatus != isOffline) {
+          print(
+            'Status changed from ${_previousOfflineStatus ? "Offline" : "Online"} to ${isOffline ? "Offline" : "Online"}',
+          );
+
+          // Update UI state immediately
+          setState(() {
+            _isOffline = isOffline;
+          });
+
+          // Show notification based on new status
+          _showConnectivityNotification(
+            !isOffline,
+          ); // true = online, false = offline
+
+          // Handle additional actions based on new connectivity state
+          if (!isOffline) {
+            // We just went online
+            Future.microtask(() => _refreshPosts());
+          } else {
+            // We just went offline
+            if (posts.isEmpty) {
+              Future.microtask(() => _loadCachedPosts());
+            }
+          }
+
+          // Update previous status
+          _previousOfflineStatus = isOffline;
+        }
+      }
+    });
+
     _initTts();
-    _loadUserData();
+    _checkConnectivityAndLoadData();
     _startTrackingTime(0);
     _loadReadArticlesData();
+
+    // Initialize Mobile Ads SDK
+    MobileAds.instance.initialize();
 
     // Listen for auto-scroll setting changes
     _autoScrollService.addListener(_updateAutoScroll);
 
     // Initialize auto-scroll if enabled
     _updateAutoScroll();
+
+    // Add lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  // Add this lifecycle method to ensure connectivity status is checked when returning to the page
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check connectivity status whenever the page is shown (including when returning from another screen)
+    _refreshConnectivityStatus();
+  }
+
+  // Add this to the _ScrollScreenState class
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+
+    // Check connectivity when the app comes back to the foreground
+    if (state == AppLifecycleState.resumed) {
+      _refreshConnectivityStatus();
+    }
+  }
+
+  // Update the dispose method
+  @override
+  void dispose() {
+    // Cancel connectivity subscription
+    _connectivitySubscription?.cancel();
+
+    // Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+
+    // Record the final reading time when widget is disposed
+    _recordReadingTime();
+
+    // Stop any ongoing TTS and dispose resources
+    flutterTts.stop();
+
+    // Clean up auto-scroll timer and listeners
+    _autoScrollTimer?.cancel();
+    _autoScrollService.removeListener(_updateAutoScroll);
+
+    // Dispose all banner ads
+    _bannerAds.forEach((key, ad) => ad?.dispose());
+
+    // Make sure to cancel any active overlay when disposing
+    _removeOverlay();
+
+    super.dispose();
+  }
+
+  // New method to refresh connectivity status at any time
+  Future<void> _refreshConnectivityStatus() async {
+    await _connectivityService.checkConnectivity();
   }
 
   // Initialize article read tracking data
@@ -213,76 +341,74 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
-  Future<void> _fetchRecommendedArticles() async {
-    if (!_hasMorePosts) return;
+  // Future<void> _fetchRecommendedArticles() async {
+  //   if (!_hasMorePosts) return;
 
-    try {
-      setState(() {
-        if (_currentPage == 1) {
-          isLoading = true;
-        } else {
-          _isLoadingMore = true;
-        }
-        _loadMoreError = false;
-      });
+  //   try {
+  //     setState(() {
+  //       if (_currentPage == 1) {
+  //         isLoading = true;
+  //       } else {
+  //         _isLoadingMore = true;
+  //       }
+  //       _loadMoreError = false;
+  //     });
 
-      final baseUrl = Config.baseUrl;
-      final response = await http.get(
-        Uri.parse(
-          '$baseUrl/user/$userId/standard-recommendations',
-        ),
-      );
+  //     final baseUrl = Config.baseUrl;
+  //     final response = await http.get(
+  //       Uri.parse('$baseUrl/user/$userId/standard-recommendations'),
+  //     );
 
-      if (response.statusCode == 200) {
-        final List<dynamic> articlesJson =
-            json.decode(response.body)['standardRecommendedArticles'];
+  //     if (response.statusCode == 200) {
+  //       final List<dynamic> articlesJson =
+  //           json.decode(response.body)['standardRecommendedArticles'];
 
-        // First, parse all posts from the API response
-        final List<Post> fetchedPosts =
-            articlesJson.map((json) => Post.fromJson(json)).toList();
+  //       // First, parse all posts from the API response
+  //       final List<Post> fetchedPosts =
+  //           articlesJson.map((json) => Post.fromJson(json)).toList();
 
-        // Then sort them to avoid consecutive posts from same domain
-        final sortedPosts = _sortPostsByDomain(fetchedPosts);
+  //       // Then sort them to avoid consecutive posts from same domain
+  //       final sortedPosts = _sortPostsByDomain(fetchedPosts);
 
-        setState(() {
-          if (_currentPage == 1) {
-            // For the first page, replace the list
-            posts = sortedPosts;
-          } else {
-            // For subsequent pages, append to the list
-            posts.addAll(sortedPosts);
-          }
+  //       setState(() {
+  //         if (_currentPage == 1) {
+  //           // For the first page, replace the list
+  //           posts = sortedPosts;
+  //         } else {
+  //           // For subsequent pages, append to the list
+  //           posts.addAll(sortedPosts);
+  //         }
 
-          // Check if we've reached the end
-          _hasMorePosts = sortedPosts.length >= _postsPerPage;
-          _currentPage++;
-          isLoading = false;
-          _isLoadingMore = false;
-        });
-      } else {
-        throw Exception('Server returned status code ${response.statusCode}');
-      }
-    } catch (error) {
-      print('===========================Error fetching articles: $error');
-      setState(() {
-        isLoading = false;
-        _isLoadingMore = false;
-        _loadMoreError = true;
+  //         // Check if we've reached the end
+  //         _hasMorePosts = sortedPosts.length >= _postsPerPage;
+  //         _currentPage++;
+  //         isLoading = false;
+  //         _isLoadingMore = false;
+  //       });
+  //     } else {
+  //       throw Exception('Server returned status code ${response.statusCode}');
+  //     }
+  //   } catch (error) {
+  //     print('===========================Error fetching articles: $error');
+  //     setState(() {
+  //       isLoading = false;
+  //       _isLoadingMore = false;
+  //       _loadMoreError = true;
 
-        // Set appropriate error message based on error type
-        if (error.toString().contains('SocketException') ||
-            error.toString().contains('Connection refused')) {
-          _errorMessage = 'Network error. Please check your connection.';
-        } else if (error.toString().contains('timed out')) {
-          _errorMessage = 'Request timed out. Please try again.';
-        } else if (error.toString().contains('status code')) {
-          _errorMessage = 'Server error. Please try again later.';
-        } else {
-          _errorMessage = 'Failed to load articles. Please try again.';
-        }
-      });
-    }
-  }
+  //       // Set appropriate error message based on error type
+  //       if (error.toString().contains('SocketException') ||
+  //           error.toString().contains('Connection refused')) {
+  //         _errorMessage = 'Network error. Please check your connection.';
+  //       } else if (error.toString().contains('timed out')) {
+  //         _errorMessage = 'Request timed out. Please try again.';
+  //       } else if (error.toString().contains('status code')) {
+  //         _errorMessage = 'Server error. Please try again later.';
+  //       } else {
+  //         _errorMessage = 'Failed to load articles. Please try again.';
+  //       }
+  //     });
+  //   }
+  // }
 
   // Get fallback image for a domain
   String _getDomainImage(String domain) {
@@ -416,9 +542,37 @@ class _ScrollScreenState extends State<ScrollScreen> {
     }
   }
 
-  // Updated to change UI first, then send request
+  // Updated to check connectivity before toggling like
   Future<void> _toggleLike(Post post) async {
-    // Update UI immediately
+    // Force a connectivity check before proceeding
+    await _refreshConnectivityStatus();
+
+    // Now check if we're offline
+    if (_connectivityService.isOffline) {
+      // Show a subtle tooltip instead of a full notification
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.signal_wifi_off, color: Colors.white, size: 16),
+              SizedBox(width: 8),
+              Text('Liking is available when online'),
+            ],
+          ),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Colors.black87,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: EdgeInsets.all(8),
+        ),
+      );
+      return;
+    }
+
+    // Rest of your existing implementation...
     setState(() {
       post.isLiked = !post.isLiked;
     });
@@ -448,11 +602,47 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
   // Replace _shufflePosts with refresh method
   Future<void> _refreshPosts() async {
+    // Check connectivity before refreshing
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      // Update local state instead of trying to modify the service directly
+      setState(() {
+        _isOffline = true;
+      });
+
+      // Show offline notification
+      _showConnectivityNotification(false);
+
+      // Try to load from cache
+      await _loadCachedPosts();
+      return;
+    }
+
     _currentPage = 1;
     _hasMorePosts = true;
+    _bertRecommendedPosts = []; // Reset BERT recommendations
+    _bertFailed = false; // Reset any BERT failures
+
+    // Dispose existing ads
+    _bannerAds.forEach((key, ad) => ad?.dispose());
+    _bannerAds.clear();
+    _isAdReady.clear();
+
     setState(() {
       isLoading = true;
+      posts = []; // Explicitly clear posts array
+      _isOffline = false; // We're online if we're refreshing
     });
+
+    // Clear image cache and memory
+    imageCache.clear();
+    imageCache.clearLiveImages();
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+
+    // Add logging for debugging
+    print('Refreshing posts - cleared data');
+
     await _fetchPosts();
   }
 
@@ -505,88 +695,120 @@ class _ScrollScreenState extends State<ScrollScreen> {
   // Replace your existing _showComments method with this updated version:
 
   void _showComments(Post post) {
-    final TextEditingController commentController = TextEditingController();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder:
-          (context) => Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
+    // Force a connectivity check before proceeding
+    _refreshConnectivityStatus().then((_) {
+      // Now check if we're offline
+      if (_connectivityService.isOffline) {
+        // Show a subtle tooltip
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.signal_wifi_off, color: Colors.white, size: 16),
+                SizedBox(width: 8),
+                Text('Comments are available when online'),
+              ],
             ),
-            child: Container(
-              height: MediaQuery.of(context).size.height * 0.7,
-              decoration: BoxDecoration(
-                color: Theme.of(context).scaffoldBackgroundColor,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            duration: Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.black87,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: EdgeInsets.all(8),
+          ),
+        );
+        return;
+      }
+
+      // Existing implementation...
+      final TextEditingController commentController = TextEditingController();
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder:
+            (context) => Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
               ),
-              child: Column(
-                children: [
-                  // Drag handle
-                  Container(
-                    margin: EdgeInsets.only(top: 8),
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[400],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-
-                  // Dynamic comments widget
-                  Expanded(child: CommentsSheet(post: post)),
-
-                  // Comment input area
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      border: Border(
-                        top: BorderSide(
-                          color: Theme.of(context).dividerColor,
-                          width: 0.5,
-                        ),
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.7,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Column(
+                  children: [
+                    // Drag handle
+                    Container(
+                      margin: EdgeInsets.only(top: 8),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[400],
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: commentController,
-                            decoration: InputDecoration(
-                              hintText: 'Add a comment...',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
-                              ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                            ),
-                            maxLines: 1,
+
+                    // Dynamic comments widget
+                    Expanded(child: CommentsSheet(post: post)),
+
+                    // Comment input area
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        border: Border(
+                          top: BorderSide(
+                            color: Theme.of(context).dividerColor,
+                            width: 0.5,
                           ),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.send),
-                          color: Theme.of(context).primaryColor,
-                          onPressed: () async {
-                            if (commentController.text.isNotEmpty) {
-                              await _addComment(post, commentController.text);
-                              commentController.clear();
-                            }
-                          },
-                        ),
-                      ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: commentController,
+                              decoration: InputDecoration(
+                                hintText: 'Add a comment...',
+                                isDense: true,
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 8,
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                              ),
+                              maxLines: 1,
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.send),
+                            color: Theme.of(context).primaryColor,
+                            onPressed: () async {
+                              if (commentController.text.isNotEmpty) {
+                                await _addComment(post, commentController.text);
+                                commentController.clear();
+                              }
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-    );
+      );
+    });
   }
 
   // Updated method to handle text-to-speech functionality without snackbar
@@ -623,9 +845,139 @@ class _ScrollScreenState extends State<ScrollScreen> {
     });
   }
 
+  // Method to load a banner ad
+  void _loadAd(int adIndex) {
+    _isAdReady[adIndex] = false;
+
+    final BannerAd bannerAd = BannerAd(
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // Test ad unit ID
+      request: const AdRequest(),
+      size: AdSize.mediumRectangle, // 300x250 - matches card dimensions
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          setState(() {
+            _bannerAds[adIndex] = ad as BannerAd;
+            _isAdReady[adIndex] = true;
+          });
+        },
+        onAdFailedToLoad: (ad, error) {
+          print('Ad failed to load: $error');
+          ad.dispose();
+        },
+      ),
+    );
+
+    bannerAd.load();
+  }
+
+  // Method to build ad widget
+  Widget _buildAdCard(int adIndex) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    final skeletonBaseColor =
+        isDarkMode ? Colors.grey[800]! : Colors.grey[300]!;
+    final skeletonHighlightColor =
+        isDarkMode ? Colors.grey[700]! : Colors.grey[200]!;
+
+    return AnimatedContainer(
+      duration: Duration(milliseconds: 300),
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color:
+                isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child:
+            _isAdReady[adIndex] == true && _bannerAds[adIndex] != null
+                ? Center(
+                  child: SizedBox(
+                    width: _bannerAds[adIndex]!.size.width.toDouble(),
+                    height: _bannerAds[adIndex]!.size.height.toDouble(),
+                    child: AdWidget(ad: _bannerAds[adIndex]!),
+                  ),
+                )
+                : Column(
+                  children: [
+                    // Image placeholder
+                    Container(
+                      height: MediaQuery.of(context).size.height * 0.35,
+                      width: double.infinity,
+                      color: skeletonBaseColor,
+                    ),
+
+                    // Content skeleton
+                    Container(
+                      padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Title placeholder
+                          Container(
+                            height: 24,
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: skeletonBaseColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+
+                          SizedBox(height: 8),
+
+                          // Shorter title line placeholder
+                          Container(
+                            height: 24,
+                            width: MediaQuery.of(context).size.width * 0.7,
+                            decoration: BoxDecoration(
+                              color: skeletonBaseColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+
+                          SizedBox(height: 16),
+
+                          // Summary placeholder lines
+                          for (int i = 0; i < 3; i++)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Container(
+                                height: 16,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color:
+                                      i % 2 == 0
+                                          ? skeletonBaseColor
+                                          : skeletonHighlightColor,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+      ),
+    );
+  }
+
   // Update the build method to handle loading state
   @override
   Widget build(BuildContext context) {
+    // Check connectivity status at the start of each build
+    // Use Future.microtask to avoid setState during build
+    // Future.microtask(() => _refreshConnectivityStatus());
+
     // Get theme brightness to adapt UI accordingly
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final theme = Theme.of(context);
@@ -652,8 +1004,14 @@ class _ScrollScreenState extends State<ScrollScreen> {
           style: Theme.of(context).appBarTheme.titleTextStyle,
         ),
         centerTitle: true,
-        // Show auto-scroll indicator when enabled
+        // Show auto-scroll indicator when enabled and offline indicator if offline
         actions: [
+          // Offline indicator
+          if (_connectivityService.isOffline)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Icon(Icons.signal_wifi_off, color: Colors.orange),
+            ),
           if (_autoScrollService.enabled)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -721,18 +1079,42 @@ class _ScrollScreenState extends State<ScrollScreen> {
               }
             },
             itemBuilder: (context, index) {
-              // Show actual posts when available
-              if (index < posts.length) {
-                final post = posts[index];
-                return _buildEnhancedCard(post, context, isDarkMode, theme);
+              // Determine total items count including ads
+              int totalItemsCount = posts.length + (posts.length ~/ 5);
+
+              // Skip showing anything beyond our data
+              if (index >= totalItemsCount) {
+                // Show error message or loading indicator
+                if (_loadMoreError) {
+                  return _buildErrorCard(context);
+                }
+                return _buildSkeletonCard(context);
               }
 
-              // Show error message with retry button
-              if (_loadMoreError) {
-                return _buildErrorCard(context);
+              // Check if this is an ad position (after every 5 posts)
+              // Ad positions are 5, 11, 17, etc.
+              if ((index + 1) % 6 == 0) {
+                final adIndex = (index + 1) ~/ 6 - 1;
+                // Load ad if not already loaded
+                if (!_isAdReady.containsKey(adIndex)) {
+                  _loadAd(adIndex);
+                }
+                return _buildAdCard(adIndex);
               }
 
-              // Show skeleton cards when loading more
+              // This is a regular post position
+              // Calculate the actual post index by subtracting the number of ads before this position
+              final postIndex = index - (index ~/ 6);
+              if (postIndex < posts.length) {
+                return _buildEnhancedCard(
+                  posts[postIndex],
+                  context,
+                  isDarkMode,
+                  theme,
+                );
+              }
+
+              // Safety fallback - should not reach here
               return _buildSkeletonCard(context);
             },
           ),
@@ -882,7 +1264,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
               ],
             ),
 
-            // Content section
+            // Content section - Add SelectableText for the article content
             Expanded(
               child: GestureDetector(
                 onHorizontalDragUpdate: (details) {
@@ -938,7 +1320,6 @@ class _ScrollScreenState extends State<ScrollScreen> {
                     _isSwipingRight = false;
                   }
                 },
-                // Add double tap detector with key to separate from other gestures
                 onDoubleTap: () {
                   HapticFeedback.mediumImpact();
                   _showFunFactDialog(post, context);
@@ -962,20 +1343,34 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
                       SizedBox(height: 16),
 
-                      // Summary with limited text and smaller font
+                      // Summary with selectable text
                       Expanded(
-                        child: Text(
+                        child: SelectableText(
                           post.summary,
                           style: theme.textTheme.bodyMedium?.copyWith(
-                            fontSize: 15,
                             height: 1.5,
-                            color:
-                                isDarkMode
-                                    ? Colors.grey[300]
-                                    : Colors.grey[800],
+                            fontSize: 16,
                           ),
-                          maxLines: 7,
-                          overflow: TextOverflow.ellipsis,
+                          onSelectionChanged: (selection, cause) {
+                            if (selection.isCollapsed)
+                              return; // No text selected
+
+                            // When user lifts finger after selecting text
+                            if (cause == SelectionChangedCause.longPress) {
+                              final selectedText = post.summary.substring(
+                                selection.start,
+                                selection.end,
+                              );
+
+                              if (selectedText.length > 3) {
+                                // Only for selections with meaningful length
+                                GeminiExplanationService.showExplanation(
+                                  context,
+                                  selectedText,
+                                );
+                              }
+                            }
+                          },
                         ),
                       ),
 
@@ -1139,6 +1534,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
     );
   }
 
+  // Update the _buildActionButton method to improve disabled state visual feedback
   Widget _buildActionButton({
     required IconData icon,
     Color? color,
@@ -1147,6 +1543,12 @@ class _ScrollScreenState extends State<ScrollScreen> {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
 
+    // If offline, use a very muted color to better indicate disabled state
+    final effectiveColor =
+        _connectivityService.isOffline
+            ? (isDarkMode ? Colors.grey[700] : Colors.grey[400])
+            : (color ?? theme.iconTheme.color);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1154,25 +1556,33 @@ class _ScrollScreenState extends State<ScrollScreen> {
         borderRadius: BorderRadius.circular(30),
         child: Container(
           padding: EdgeInsets.all(12),
-          child: Icon(icon, size: 24, color: color ?? theme.iconTheme.color),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(icon, size: 24, color: effectiveColor),
+              // Show a small indicator when offline
+              if (_connectivityService.isOffline)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isDarkMode ? Colors.grey[700] : Colors.grey[300],
+                      border: Border.all(
+                        color: isDarkMode ? Colors.grey[800]! : Colors.white,
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    // Record the final reading time when widget is disposed
-    _recordReadingTime();
-
-    // Stop any ongoing TTS and dispose resources
-    flutterTts.stop();
-
-    // Clean up auto-scroll timer and listeners
-    _autoScrollTimer?.cancel();
-    _autoScrollService.removeListener(_updateAutoScroll);
-
-    super.dispose();
   }
 
   // Method to show fun fact dialog with enhanced design
@@ -1440,6 +1850,29 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
   // Update the fetchPosts method to handle lazy loading
   Future<void> _fetchPosts() async {
+    // Check connectivity before fetching
+    var connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none) {
+      // Update local offline state
+      setState(() {
+        _isOffline = true;
+        isLoading = false;
+        _isLoadingMore = false;
+
+        // If we already have posts (from cache), don't show error
+        if (posts.isEmpty) {
+          _loadMoreError = true;
+          _errorMessage = 'You are offline. Please check your connection.';
+        }
+      });
+
+      // Try to load from cache if we don't have posts yet
+      if (posts.isEmpty) {
+        await _loadCachedPosts();
+      }
+      return;
+    }
+
     setState(() {
       if (_currentPage == 1) {
         isLoading = true;
@@ -1463,30 +1896,37 @@ class _ScrollScreenState extends State<ScrollScreen> {
         return;
       }
 
-      // First fetch standard recommendations with pagination
+      print('Fetching standard recommendations for page: $_currentPage');
       final standardResponse = await http.get(
-        Uri.parse(
-          '${Config.baseUrl}/user/$userId/standard-recommendations',
-        ),
+        Uri.parse('${Config.baseUrl}/user/$userId/standard-recommendations'),
+        headers: {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
       );
 
       if (standardResponse.statusCode == 200) {
         final data = json.decode(standardResponse.body);
         final standardArticles = data['standardRecommendedArticles'] as List;
+        print('!@#%^&*()${standardArticles}');
+        print('Received ${standardArticles.length} standard articles');
 
         // Parse the fetched posts
         final fetchedPosts =
-            standardArticles
-                .map<Post>((article) => Post.fromJson(article))
-                .toList();
+            standardArticles.map<Post>((article) {
+              return Post.fromJson(
+                article is Map
+                    ? article as Map<String, dynamic>
+                    : json.decode(article.toString()),
+              );
+            }).toList();
 
         setState(() {
           if (_currentPage == 1) {
-            // For first page, replace the list
-            posts = fetchedPosts;
+            // For first page, replace the list completely
+            posts = _sortPostsByDomain(fetchedPosts);
+            print('Reset posts list with ${posts.length} new items');
           } else {
             // For subsequent pages, append to the list
             posts.addAll(fetchedPosts);
+            print('Added ${fetchedPosts.length} more items to posts list');
           }
 
           // Check if we've reached the end
@@ -1494,18 +1934,20 @@ class _ScrollScreenState extends State<ScrollScreen> {
           _currentPage++;
           isLoading = false;
           _isLoadingMore = false;
+          _isOffline = false; // We're online if we successfully fetched
         });
 
-        print("Before bert : ${posts.length}");
+        // Cache the posts after fetching
+        _saveCachedPosts();
 
-        // After standard recommendations load, fetch BERT recommendations in background
-        // Only fetch BERT for the first page
-        if (_currentPage == 2) {
-          await _fetchBertRecommendations();
+        // Only fetch BERT recommendations for the first page and if we haven't failed before
+        if (_currentPage == 2 && !_bertFailed) {
+          await _fetchPosts();
         }
-
-        print("after bert : ${posts.length}");
       } else {
+        print(
+          'Standard recommendations API returned status: ${standardResponse.statusCode}',
+        );
         setState(() {
           isLoading = false;
           _isLoadingMore = false;
@@ -1518,6 +1960,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
         isLoading = false;
         _isLoadingMore = false;
         _isBertLoading = false;
+
+        // If we can't fetch and have no posts, try to load from cache
+        if (posts.isEmpty) {
+          _loadCachedPosts();
+        }
       });
     }
   }
@@ -1527,45 +1974,76 @@ class _ScrollScreenState extends State<ScrollScreen> {
     if (userId == null) return;
 
     try {
+      print('Fetching BERT recommendations');
       final bertResponse = await http.get(
         Uri.parse('${Config.baseUrl}/user/$userId/bert-recommendations'),
+        headers: {'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
       );
 
       if (bertResponse.statusCode == 200) {
         final data = json.decode(bertResponse.body);
         final bertArticles = data['bertRecommendedArticles'] as List;
+        print('Received ${bertArticles.length} BERT articles');
+
+        final bertPosts =
+            bertArticles.map<Post>((article) {
+              return Post.fromJson(
+                article is Map
+                    ? article as Map<String, dynamic>
+                    : json.decode(article.toString()),
+              );
+            }).toList();
+
+        // Create a set of existing post IDs for faster lookup
+        final existingIds = posts.map((p) => p.id).toSet();
+
+        // Filter out any BERT posts that are already in the standard list
+        final uniqueBertPosts =
+            bertPosts.where((p) => !existingIds.contains(p.id)).toList();
+
+        print('Found ${uniqueBertPosts.length} unique BERT posts');
 
         setState(() {
-          _bertRecommendedPosts =
-              bertArticles
-                  .map<Post>((article) => Post.fromJson(article))
-                  .toList();
+          _bertRecommendedPosts = uniqueBertPosts;
           _isBertLoading = false;
 
-          // Now merge BERT recommendations with standard posts
-          // Add BERT posts at the beginning or intersperse them
           if (_bertRecommendedPosts.isNotEmpty) {
-            // Create a new list with BERT recommendations first
-            List<Post> allPosts = [..._bertRecommendedPosts];
+            // Create a new merged list
+            List<Post> allPosts = [];
 
-            // Add standard posts that aren't duplicates of BERT posts
-            for (Post post in posts) {
-              if (!_bertRecommendedPosts.any(
-                (bertPost) => bertPost.id == post.id,
-              )) {
-                allPosts.add(post);
+            // Interleave BERT posts with standard posts for better variety
+            // Add 1 BERT post for every 2 standard posts if available
+            int bertIndex = 0;
+            final List<Post> standardPosts = List.from(posts);
+
+            while (standardPosts.isNotEmpty ||
+                bertIndex < _bertRecommendedPosts.length) {
+              // Add up to 2 standard posts
+              if (standardPosts.isNotEmpty) {
+                allPosts.add(standardPosts.removeAt(0));
+              }
+              if (standardPosts.isNotEmpty) {
+                allPosts.add(standardPosts.removeAt(0));
+              }
+
+              // Add 1 BERT post if available
+              if (bertIndex < _bertRecommendedPosts.length) {
+                allPosts.add(_bertRecommendedPosts[bertIndex++]);
               }
             }
 
+            print(
+              'Created new merged list with ${allPosts.length} total posts',
+            );
             posts = allPosts;
           }
         });
       } else {
+        print('BERT API returned status: ${bertResponse.statusCode}');
         setState(() {
           _isBertLoading = false;
           _bertFailed = true;
         });
-        // We don't show errors for BERT since it's supplementary content
       }
     } catch (e) {
       print('Error fetching BERT recommendations: $e');
@@ -1573,7 +2051,6 @@ class _ScrollScreenState extends State<ScrollScreen> {
         _isBertLoading = false;
         _bertFailed = true;
       });
-      // We don't show errors for BERT since it's supplementary content
     }
   }
 
@@ -1612,35 +2089,32 @@ class _ScrollScreenState extends State<ScrollScreen> {
         borderRadius: BorderRadius.circular(16),
         child: Column(
           children: [
-            // Image placeholder
+            // Image skeleton
             Container(
               height: MediaQuery.of(context).size.height * 0.35,
               width: double.infinity,
               color: skeletonBaseColor,
             ),
 
-            // Content section
-            Container(
-              padding: EdgeInsets.fromLTRB(24, 24, 24, 16),
+            // Content skeleton
+            Padding(
+              padding: EdgeInsets.all(24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Title placeholder
+                  // Title skeleton
                   Container(
-                    height: 24,
+                    height: 28,
                     width: double.infinity,
                     decoration: BoxDecoration(
                       color: skeletonBaseColor,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
-
                   SizedBox(height: 8),
-
-                  // Shorter title line placeholder
                   Container(
-                    height: 24,
-                    width: MediaQuery.of(context).size.width * 0.7,
+                    height: 28,
+                    width: MediaQuery.of(context).size.width * 0.6,
                     decoration: BoxDecoration(
                       color: skeletonBaseColor,
                       borderRadius: BorderRadius.circular(4),
@@ -1649,42 +2123,38 @@ class _ScrollScreenState extends State<ScrollScreen> {
 
                   SizedBox(height: 16),
 
-                  // Summary placeholder lines
-                  for (int i = 0; i < 5; i++)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Container(
-                        height: 16,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          // Alternate colors and widths for more realistic text effect
-                          color:
-                              i % 2 == 0
-                                  ? skeletonBaseColor
-                                  : skeletonHighlightColor,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
+                  // Summary skeleton - multiple lines
+                  for (var i = 0; i < 5; i++) ...[
+                    Container(
+                      height: 16,
+                      width: double.infinity,
+                      margin: EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color:
+                            i % 2 == 0
+                                ? skeletonBaseColor
+                                : skeletonHighlightColor,
+                        borderRadius: BorderRadius.circular(4),
                       ),
                     ),
+                  ],
 
-                  SizedBox(height: 16),
+                  SizedBox(height: 24),
 
-                  Divider(),
-
-                  // Action buttons placeholders
+                  // Actions skeleton
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(
-                      3,
-                      (index) => Container(
-                        height: 24,
-                        width: 24,
-                        decoration: BoxDecoration(
-                          color: skeletonBaseColor,
-                          shape: BoxShape.circle,
+                    children: [
+                      for (var i = 0; i < 3; i++)
+                        Container(
+                          height: 32,
+                          width: 32,
+                          decoration: BoxDecoration(
+                            color: skeletonBaseColor,
+                            shape: BoxShape.circle,
+                          ),
                         ),
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -1721,46 +2191,496 @@ class _ScrollScreenState extends State<ScrollScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: Colors.red, size: 48),
-            SizedBox(height: 16),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                _errorMessage.isEmpty
-                    ? 'Failed to load more articles'
-                    : _errorMessage,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ),
-            SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  _loadMoreError = false;
-                  _errorMessage = '';
-                });
-                _loadMorePosts();
-              },
-              style: ElevatedButton.styleFrom(
-                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 8),
-                  Text('Retry'),
+                  Icon(
+                    Icons.cloud_off,
+                    size: 64,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    _errorMessage,
+                    style: theme.textTheme.headlineSmall,
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _refreshPosts,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primaryColor,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: Text('Try Again'),
+                  ),
                 ],
               ),
             ),
-            SizedBox(height: 16),
           ],
         ),
       ),
     );
+  }
+
+  // Check connectivity and load appropriate data
+  Future<void> _checkConnectivityAndLoadData() async {
+    await _connectivityService.checkConnectivity();
+
+    if (!_connectivityService.isOffline) {
+      _isOffline = false;
+      await _loadUserData();
+    } else {
+      _isOffline = true;
+      await _loadCachedPosts();
+    }
+  }
+
+  // Update connection status when it changes
+  Future<void> _updateConnectionStatus(List<ConnectivityResult> results) async {
+    final result = results.isNotEmpty ? results.first : ConnectivityResult.none;
+    final bool isConnected = result != ConnectivityResult.none;
+
+    // If we're going from offline to online, refresh data
+    if (_isOffline && isConnected) {
+      setState(() {
+        _isOffline = false;
+      });
+
+      // Show online notification
+      _showConnectivityNotification(true);
+
+      await _refreshPosts();
+    }
+    // If we're going from online to offline, ensure we have cached posts
+    else if (!_isOffline && !isConnected) {
+      setState(() {
+        _isOffline = true;
+      });
+
+      // If we don't have posts loaded, try to load from cache
+      if (posts.isEmpty) {
+        await _loadCachedPosts();
+      }
+
+      // Show offline notification
+      _showConnectivityNotification(false);
+    }
+  }
+
+  // Save posts to cache
+  Future<void> _saveCachedPosts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Limit the number of posts to cache
+      final postsToCache =
+          posts.length > _maxCachedPosts
+              ? posts.sublist(0, _maxCachedPosts)
+              : posts;
+
+      // Convert posts to JSON
+      final List<String> postsJsonList =
+          postsToCache.map((post) => json.encode(post.toJson())).toList();
+
+      // Save to SharedPreferences
+      await prefs.setStringList(_cachedPostsKey, postsJsonList);
+      print('Saved ${postsToCache.length} posts to cache');
+    } catch (e) {
+      print('Error saving posts to cache: $e');
+    }
+  }
+
+  // Load posts from cache
+  Future<void> _loadCachedPosts() async {
+    try {
+      setState(() {
+        isLoading = true;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      final cachedPostsJson = prefs.getStringList(_cachedPostsKey);
+
+      if (cachedPostsJson != null && cachedPostsJson.isNotEmpty) {
+        // Parse JSON strings back to Post objects
+        final List<Post> cachedPosts = [];
+
+        for (String postJson in cachedPostsJson) {
+          try {
+            final postMap = json.decode(postJson) as Map<String, dynamic>;
+            final post = Post.fromJson(postMap);
+            cachedPosts.add(post);
+          } catch (e) {
+            print('Error parsing cached post: $e');
+            // Continue with the next post if one fails
+          }
+        }
+
+        setState(() {
+          posts = cachedPosts;
+          isLoading = false;
+        });
+        print('Loaded ${posts.length} posts from cache');
+      } else {
+        setState(() {
+          isLoading = false;
+          _loadMoreError = true;
+          _errorMessage =
+              'No cached content available. Please connect to the internet.';
+        });
+      }
+    } catch (e) {
+      print('Error loading posts from cache: $e');
+      setState(() {
+        isLoading = false;
+        _loadMoreError = true;
+        _errorMessage = 'Error loading cached content: ${e.toString()}';
+      });
+    }
+  }
+
+  // New method for showing sweet action-specific notifications
+  void _showActionNotification({
+    required String emoji,
+    required String message,
+    required String actionName,
+  }) {
+    // Remove any existing notification first
+    _removeOverlay();
+
+    // Create the new overlay with a sweet message
+    _overlayEntry = OverlayEntry(
+      builder: (context) {
+        final theme = Theme.of(context);
+        final isDarkMode = theme.brightness == Brightness.dark;
+
+        // Sweet purple/pink colors for offline action notifications
+        final Color backgroundColor =
+            isDarkMode
+                ? Color(0xFF2D2438) // Dark mode: deep purple
+                : Color(0xFFF9F0FF); // Light mode: light lavender
+
+        final Color textColor =
+            isDarkMode
+                ? Color(0xFFF4E3FF) // Light lavender text for dark mode
+                : Color(0xFF6A3EA1); // Purple text for light mode
+
+        return Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            child: Material(
+              color: Colors.transparent,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: -100.0, end: 0.0),
+                curve: Curves.elasticOut,
+                duration: Duration(milliseconds: 800),
+                builder: (context, value, child) {
+                  return Transform.translate(
+                    offset: Offset(0, value),
+                    child: child,
+                  );
+                },
+                child: GestureDetector(
+                  onTap: _removeOverlay,
+                  child: Container(
+                    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: backgroundColor,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: Offset(0, 4),
+                        ),
+                      ],
+                      border: Border.all(
+                        color:
+                            isDarkMode
+                                ? Color(0xFF8454D8).withOpacity(0.5)
+                                : Color(0xFFD6B9FF),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        // Bouncing emoji with heart effect for likes
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0.5, end: 1.0),
+                          curve: Curves.elasticOut,
+                          duration: Duration(milliseconds: 1200),
+                          builder: (context, value, child) {
+                            return Transform.scale(
+                              scale: value,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  // Small sparkle effect
+                                  if (actionName == 'like')
+                                    ...List.generate(3, (i) {
+                                      return Positioned(
+                                        top: -4 + (i * 3),
+                                        right: -4 + (i * 2),
+                                        child: Icon(
+                                          Icons.star,
+                                          color: Color(0xFFFFD700),
+                                          size: 10,
+                                        ),
+                                      );
+                                    }),
+                                  Text(emoji, style: TextStyle(fontSize: 28)),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        SizedBox(width: 12),
+
+                        // Message with fade in animation
+                        Expanded(
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween<double>(begin: 0.0, end: 1.0),
+                            curve: Curves.easeIn,
+                            duration: Duration(milliseconds: 500),
+                            builder: (context, value, child) {
+                              return Opacity(opacity: value, child: child);
+                            },
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  message,
+                                  style: TextStyle(
+                                    color: textColor,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  "Connect to continue ${actionName == 'like' ? 'liking' : 'commenting'} 💫",
+                                  style: TextStyle(
+                                    color: textColor.withOpacity(0.7),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Close icon
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(),
+                          icon: Icon(
+                            Icons.close,
+                            color: textColor.withOpacity(0.7),
+                            size: 20,
+                          ),
+                          onPressed: _removeOverlay,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    // Add to the overlay
+    Overlay.of(context).insert(_overlayEntry!);
+
+    // Auto-hide after a few seconds
+    _overlayTimer = Timer(Duration(seconds: 4), _removeOverlay);
+
+    // Add haptic feedback for a more engaging experience
+    HapticFeedback.mediumImpact();
+  }
+
+  // Fix the _showConnectivityNotification method to ensure it's correctly implemented
+  void _showConnectivityNotification(bool isOnline) {
+    // Remove any existing notification first
+    _removeOverlay();
+
+    // Add debug log
+    print(
+      'Showing connectivity notification: ${isOnline ? "Online" : "Offline"}',
+    );
+
+    // Use post-frame callback to ensure we're in a safe rendering cycle
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      // Create the new overlay
+      _overlayEntry = OverlayEntry(
+        builder: (context) {
+          final screenWidth = MediaQuery.of(context).size.width;
+          final theme = Theme.of(context);
+          final isDarkMode = theme.brightness == Brightness.dark;
+
+          // Define colors and styles based on connection status
+          final Color backgroundColor =
+              isOnline
+                  ? (isDarkMode
+                      ? Color(0xFF1E422C)
+                      : Color(0xFFE3F5E9)) // Green shade
+                  : (isDarkMode
+                      ? Color(0xFF42271E)
+                      : Color(0xFFFFF3E0)); // Orange/amber shade
+
+          final Color textColor =
+              isDarkMode
+                  ? Colors.white
+                  : (isOnline ? Color(0xFF0E6245) : Color(0xFFC75B39));
+
+          final String emoji = isOnline ? '🌐' : '📶';
+          final String message =
+              isOnline
+                  ? "Yay! You're back online! Ready to explore more articles..."
+                  : "Oops! You're offline now. Don't worry, we've saved some articles for you ✨";
+
+          return Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Material(
+                color: Colors.transparent,
+                child: TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: -100.0, end: 0.0),
+                  curve: Curves.elasticOut,
+                  duration: Duration(milliseconds: 800),
+                  builder: (context, value, child) {
+                    return Transform.translate(
+                      offset: Offset(0, value),
+                      child: child,
+                    );
+                  },
+                  child: GestureDetector(
+                    onTap: _removeOverlay,
+                    child: Container(
+                      margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: backgroundColor,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 10,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                        border: Border.all(
+                          color:
+                              isOnline
+                                  ? Colors.green.withOpacity(0.5)
+                                  : Colors.orange.withOpacity(0.5),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Bouncing emoji
+                          TweenAnimationBuilder<double>(
+                            tween: Tween<double>(begin: 0.5, end: 1.0),
+                            curve: Curves.elasticOut,
+                            duration: Duration(milliseconds: 1200),
+                            builder: (context, value, child) {
+                              return Transform.scale(
+                                scale: value,
+                                child: Text(
+                                  emoji,
+                                  style: TextStyle(fontSize: 24),
+                                ),
+                              );
+                            },
+                          ),
+                          SizedBox(width: 12),
+
+                          // Message with fade in animation
+                          Expanded(
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween<double>(begin: 0.0, end: 1.0),
+                              curve: Curves.easeIn,
+                              duration: Duration(milliseconds: 500),
+                              builder: (context, value, child) {
+                                return Opacity(opacity: value, child: child);
+                              },
+                              child: Text(
+                                message,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+
+                          // Close icon
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: BoxConstraints(),
+                            icon: Icon(
+                              Icons.close,
+                              color: textColor.withOpacity(0.7),
+                              size: 20,
+                            ),
+                            onPressed: _removeOverlay,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      );
+
+      // Add to the overlay
+      try {
+        Overlay.of(context).insert(_overlayEntry!);
+
+        // Auto-hide after a few seconds
+        _overlayTimer = Timer(Duration(seconds: 4), _removeOverlay);
+      } catch (e) {
+        print('Error showing connectivity notification: $e');
+        _overlayEntry = null;
+      }
+    });
+  }
+
+  // Make sure _removeOverlay is properly defined
+  void _removeOverlay() {
+    _overlayTimer?.cancel();
+    _overlayTimer = null;
+
+    if (_overlayEntry != null) {
+      try {
+        _overlayEntry!.remove();
+      } catch (e) {
+        print('Error removing overlay: $e');
+      }
+      _overlayEntry = null;
+    }
   }
 }

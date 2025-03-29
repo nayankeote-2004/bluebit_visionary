@@ -1,17 +1,21 @@
+import 'package:tik_tok_wikipidiea/models/comment.dart';
+
 class Section {
   final String title;
   final String content;
 
-  Section({
-    required this.title,
-    required this.content,
-  });
+  Section({required this.title, required this.content});
 
   factory Section.fromJson(Map<String, dynamic> json) {
     return Section(
-      title: json['title'] ?? '',
-      content: json['content'] ?? '',
+      title: json['title'] != null ? json['title'].toString() : '',
+      content: json['content'] != null ? json['content'].toString() : '',
     );
+  }
+
+  // Add this method to serialize Section objects
+  Map<String, dynamic> toJson() {
+    return {'title': title, 'content': content};
   }
 }
 
@@ -27,7 +31,7 @@ class Post {
   final List<String> relatedTopics;
   final List<Section> sections;
   bool isLiked;
-  List<String> comments;
+  List<Comment> comments;
   bool isBookmarked;
 
   Post({
@@ -47,6 +51,7 @@ class Post {
   });
 
   factory Post.fromJson(Map<String, dynamic> json) {
+    print('------- id : ${json['id']}');
     return Post(
       id: json['id'] ?? 0,
       title: json['title'] ?? '',
@@ -57,10 +62,32 @@ class Post {
       funFact: json['fun_fact'] ?? '',
       readingTime: json['reading_time'] ?? 0,
       relatedTopics: List<String>.from(json['related_topics'] ?? []),
-      sections: (json['sections'] as List<dynamic>? ?? [])
-          .map((section) => Section.fromJson(section))
-          .toList(),
-      comments: List<String>.from(json['comments'] ?? []),
+      sections:
+          (json['sections'] as List<dynamic>? ?? []).map((section) {
+            return Section.fromJson(section);
+          }).toList(),
+      comments:
+          (json['comments'] as List<dynamic>? ?? [])
+              .map((comment) => Comment.fromJson(comment))
+              .toList(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'image_url': imageUrl,
+      'summary': summary,
+      'domain': domain,
+      'created_at': createdAt,
+      'fun_fact': funFact,
+      'reading_time': readingTime,
+      'related_topics': relatedTopics,
+      'sections': sections.map((section) => section.toJson()).toList(),
+      'comments': comments.map((comment) => comment.toJson()).toList(),
+      'isLiked': isLiked,
+      'isBookmarked': isBookmarked,
+    };
   }
 }

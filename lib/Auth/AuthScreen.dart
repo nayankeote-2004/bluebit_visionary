@@ -8,7 +8,6 @@ import 'package:tik_tok_wikipidiea/screens/UserInterest/userInterest.dart';
 import 'package:tik_tok_wikipidiea/services/theme_render.dart';
 
 import '../config.dart';
-import '../screens/UserInterest/userInterest.dart';
 
 class AuthScreen extends StatefulWidget {
   @override
@@ -169,7 +168,6 @@ class _AuthScreenState extends State<AuthScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  
                   Text(
                     'Please try again or report this issue.',
                     style: TextStyle(fontSize: 12, color: Colors.grey[700]),
@@ -230,7 +228,7 @@ class _AuthScreenState extends State<AuthScreen>
               ],
             ),
       );
-   } finally {
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;

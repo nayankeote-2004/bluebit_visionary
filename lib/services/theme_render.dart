@@ -40,8 +40,8 @@ class ThemeService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_themeKey, _themeMode == ThemeMode.dark);
 
-    // Notify listeners
-    _notifyListeners();
+    // Notify listeners with the updated theme mode
+    notifyListeners(_themeMode);
   }
 
   // Set specific theme mode
@@ -77,4 +77,15 @@ class ThemeService {
 
   // Listeners for theme changes
   final List<Function(ThemeMode)> _listeners = [];
+
+  // Add this method to ThemeService class:
+  void notifyListeners(ThemeMode mode) {
+    for (var listener in _listeners) {
+      try {
+        listener(mode);
+      } catch (e) {
+        print('Error notifying theme listener: $e');
+      }
+    }
+  }
 }

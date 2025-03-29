@@ -73,6 +73,7 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
 
       if (interactionsResponse.statusCode == 200) {
         final data = json.decode(interactionsResponse.body);
+        print('---------------\n${data}');
         final commentedArticles = data['commentedArticles'] ?? [];
         print('Commented articles: $commentedArticles');
         if (commentedArticles.isEmpty) {
@@ -182,20 +183,7 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
               );
 
               // Convert comments to the expected format if needed
-              if (modifiedArticleData.containsKey('comments')) {
-                if (modifiedArticleData['comments'] is List) {
-                  // Ensure comments are strings
-                  List<dynamic> rawComments = modifiedArticleData['comments'];
-                  modifiedArticleData['comments'] =
-                      rawComments.map((comment) {
-                        // If it's a map, extract the text or convert to string
-                        if (comment is Map) {
-                          return comment['text'] ?? comment.toString();
-                        }
-                        return comment.toString();
-                      }).toList();
-                }
-              }
+            
 
               try {
                 final post = Post.fromJson(modifiedArticleData);
@@ -382,10 +370,10 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
                       ),
                     ),
                   ),
-              
+
                   // Divider
                   Divider(height: 1),
-              
+
                   // Comment content
                   Container(
                     padding: EdgeInsets.all(16),
@@ -395,11 +383,7 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
                         // Comment label
                         Row(
                           children: [
-                            Icon(
-                              Icons.comment,
-                              size: 16,
-                              color: Colors.amber,
-                            ),
+                            Icon(Icons.comment, size: 16, color: Colors.amber),
                             SizedBox(width: 8),
                             Text(
                               'Your comment:',
@@ -411,9 +395,9 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
                             ),
                           ],
                         ),
-              
+
                         SizedBox(height: 12),
-              
+
                         // Comment text
                         Container(
                           padding: EdgeInsets.all(12),
@@ -435,9 +419,9 @@ class _YourCommentsPageState extends State<YourCommentsPage> {
                             style: theme.textTheme.bodyMedium,
                           ),
                         ),
-              
+
                         SizedBox(height: 16),
-              
+
                         // Read article button
                       ],
                     ),

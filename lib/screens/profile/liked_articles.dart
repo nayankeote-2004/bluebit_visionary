@@ -3,6 +3,7 @@ import 'package:tik_tok_wikipidiea/config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:tik_tok_wikipidiea/models/comment.dart';
 import 'package:tik_tok_wikipidiea/screens/home/post_details.dart';
 import 'package:tik_tok_wikipidiea/models/post_content.dart';
 
@@ -533,7 +534,7 @@ class _LikedArticlesPageState extends State<LikedArticlesPage> {
               (articleData['sections'] as List<dynamic>? ?? [])
                   .map((section) => Section.fromJson(section))
                   .toList(),
-          comments: List<String>.from(articleData['comments'] ?? []),
+          comments: List<Comment>.from(articleData['comments'] ?? []),
           isLiked: true, // Since this is coming from liked articles
         );
 
