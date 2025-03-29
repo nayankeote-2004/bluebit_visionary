@@ -94,6 +94,10 @@ class _ScrollScreenState extends State<ScrollScreen> {
   List<Post> _bertRecommendedPosts = [];
   bool _bertFailed = false;
 
+  // Add these variables to _ScrollScreenState class
+  bool _loadMoreError = false;
+  String _errorMessage = '';
+
   @override
   void initState() {
     super.initState();
@@ -205,7 +209,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
       // Reset pagination when initially loading
       _currentPage = 1;
       _hasMorePosts = true;
-      await _fetchRecommendedArticles();
+      await _fetchPosts();
     }
   }
 
@@ -219,12 +223,13 @@ class _ScrollScreenState extends State<ScrollScreen> {
         } else {
           _isLoadingMore = true;
         }
+        _loadMoreError = false;
       });
 
       final baseUrl = Config.baseUrl;
       final response = await http.get(
         Uri.parse(
-          '$baseUrl/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
+          '$baseUrl/user/$userId/standard-recommendations',
         ),
       );
 
@@ -255,17 +260,26 @@ class _ScrollScreenState extends State<ScrollScreen> {
           _isLoadingMore = false;
         });
       } else {
-        setState(() {
-          isLoading = false;
-          _isLoadingMore = false;
-        });
-        throw Exception('Failed to load articles');
+        throw Exception('Server returned status code ${response.statusCode}');
       }
     } catch (error) {
-      print('Error fetching articles: $error');
+      print('===========================Error fetching articles: $error');
       setState(() {
         isLoading = false;
         _isLoadingMore = false;
+        _loadMoreError = true;
+
+        // Set appropriate error message based on error type
+        if (error.toString().contains('SocketException') ||
+            error.toString().contains('Connection refused')) {
+          _errorMessage = 'Network error. Please check your connection.';
+        } else if (error.toString().contains('timed out')) {
+          _errorMessage = 'Request timed out. Please try again.';
+        } else if (error.toString().contains('status code')) {
+          _errorMessage = 'Server error. Please try again later.';
+        } else {
+          _errorMessage = 'Failed to load articles. Please try again.';
+        }
       });
     }
   }
@@ -439,7 +453,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
     setState(() {
       isLoading = true;
     });
-    await _fetchRecommendedArticles();
+    await _fetchPosts();
   }
 
   // Add this function to the _ScrollScreenState class
@@ -675,7 +689,11 @@ class _ScrollScreenState extends State<ScrollScreen> {
             controller: _pageController,
             scrollDirection: Axis.vertical,
             physics: const BouncingScrollPhysics(),
-            itemCount: _hasMorePosts ? posts.length + 1 : posts.length,
+            itemCount:
+                _hasMorePosts
+                    ? posts.length +
+                        (_loadMoreError ? 1 : (_isLoadingMore ? 3 : 1))
+                    : posts.length,
             onPageChanged: (index) {
               // Stop any ongoing TTS when changing pages
               if (isSpeaking) {
@@ -692,7 +710,8 @@ class _ScrollScreenState extends State<ScrollScreen> {
               // Check if we need to load more posts
               if (index >= posts.length - 3 &&
                   !_isLoadingMore &&
-                  _hasMorePosts) {
+                  _hasMorePosts &&
+                  !_loadMoreError) {
                 _loadMorePosts();
               }
 
@@ -702,18 +721,19 @@ class _ScrollScreenState extends State<ScrollScreen> {
               }
             },
             itemBuilder: (context, index) {
-              // Show a loading indicator at the end if more posts can be loaded
-              if (index >= posts.length) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(),
-                  ),
-                );
+              // Show actual posts when available
+              if (index < posts.length) {
+                final post = posts[index];
+                return _buildEnhancedCard(post, context, isDarkMode, theme);
               }
 
-              final post = posts[index];
-              return _buildEnhancedCard(post, context, isDarkMode, theme);
+              // Show error message with retry button
+              if (_loadMoreError) {
+                return _buildErrorCard(context);
+              }
+
+              // Show skeleton cards when loading more
+              return _buildSkeletonCard(context);
             },
           ),
         ),
@@ -1077,7 +1097,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
                             color:
                                 post.isLiked
                                     ? Colors.red
-                                    : null, // Red when liked
+                                    : Colors.red[300], // Red when liked
                             onPressed: () => _toggleLike(post),
                           ),
                           _buildActionButton(
@@ -1446,7 +1466,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
       // First fetch standard recommendations with pagination
       final standardResponse = await http.get(
         Uri.parse(
-          '${Config.baseUrl}/user/$userId/standard-recommendations?page=$_currentPage&limit=$_postsPerPage',
+          '${Config.baseUrl}/user/$userId/standard-recommendations',
         ),
       );
 
@@ -1545,6 +1565,7 @@ class _ScrollScreenState extends State<ScrollScreen> {
           _isBertLoading = false;
           _bertFailed = true;
         });
+        // We don't show errors for BERT since it's supplementary content
       }
     } catch (e) {
       print('Error fetching BERT recommendations: $e');
@@ -1552,13 +1573,14 @@ class _ScrollScreenState extends State<ScrollScreen> {
         _isBertLoading = false;
         _bertFailed = true;
       });
+      // We don't show errors for BERT since it's supplementary content
     }
   }
 
   // Method to load more posts as the user scrolls
   Future<void> _loadMorePosts() async {
     if (!_isLoadingMore && _hasMorePosts) {
-      await _fetchRecommendedArticles();
+      await _fetchPosts();
     }
   }
 
@@ -1667,6 +1689,75 @@ class _ScrollScreenState extends State<ScrollScreen> {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Add this method to _ScrollScreenState class
+  Widget _buildErrorCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    return Container(
+      margin: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: theme.cardColor,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color:
+                isDarkMode
+                    ? Colors.black.withOpacity(0.3)
+                    : Colors.black.withOpacity(0.1),
+            blurRadius: 12,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 48),
+            SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _errorMessage.isEmpty
+                    ? 'Failed to load more articles'
+                    : _errorMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _loadMoreError = false;
+                  _errorMessage = '';
+                });
+                _loadMorePosts();
+              },
+              style: ElevatedButton.styleFrom(
+                padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 8),
+                  Text('Retry'),
+                ],
+              ),
+            ),
+            SizedBox(height: 16),
           ],
         ),
       ),

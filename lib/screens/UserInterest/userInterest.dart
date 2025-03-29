@@ -229,7 +229,7 @@ class _UserInterestPageState extends State<UserInterestPage>
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
                                     content: Text(
-                                      'Registration successful! Please login.',
+                                      'Registration successful!',
                                     ),
                                     backgroundColor:
                                         Theme.of(context).primaryColor,

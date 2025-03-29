@@ -1,4 +1,4 @@
 class Config {
-  static final String baseUrl = 'https://bulebit-visionary-oy2m.onrender.com';
+  static final String baseUrl = 'http://192.168.55.12:5000';
   
 }
