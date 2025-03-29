@@ -7,7 +7,8 @@ from flask_bcrypt import Bcrypt
 from pymongo import MongoClient
 import re
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
+from sentimental import sentiment_blueprint, init_app
 
 
 # Add these imports at the top
@@ -55,6 +56,9 @@ client = MongoClient(mongo_uri)
 db = client.get_database("visionary")
 users_collection = db.users
 
+init_app(app, db)
+app.register_blueprint(sentiment_blueprint)
+
 def get_wikipedia_data(topic):
     wiki_wiki = wikipediaapi.Wikipedia(
         language='en',
@@ -62,7 +66,7 @@ def get_wikipedia_data(topic):
     )
     
     # Search for pages related to the topic
-    search_results = wikipedia.search(topic, results=10)  # Get up to 5 related pages
+    search_results = wikipedia.search(topic, results=100)  # Get up to 5 related pages
     data = []
     
     try:
@@ -1044,247 +1048,247 @@ def get_bert_recommendations(user_id):
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
-@app.route('/user/<user_id>/standard-recommendations', methods=['GET'])
-def get_standard_recommendations(user_id):
-    try:
-        # Convert the string user ID to MongoDB ObjectId
-        from bson.objectid import ObjectId
+# @app.route('/user/<user_id>/standard-recommendations', methods=['GET'])
+# def get_standard_recommendations(user_id):
+#     try:
+#         # Convert the string user ID to MongoDB ObjectId
+#         from bson.objectid import ObjectId
         
-        user_id_obj = ObjectId(user_id)
+#         user_id_obj = ObjectId(user_id)
         
-        # Find the user
-        user = users_collection.find_one({"_id": user_id_obj})
-        if not user:
-            return jsonify({"error": "User not found"}), 404
+#         # Find the user
+#         user = users_collection.find_one({"_id": user_id_obj})
+#         if not user:
+#             return jsonify({"error": "User not found"}), 404
         
-        # Get user's interested domains and interactions
-        interested_domains = user.get("interestedDomains", [])
-        liked_articles = user.get("likedArticles", [])
-        commented_articles = user.get("commentedArticles", [])
-        shared_articles = user.get("sharedArticles", [])
+#         # Get user's interested domains and interactions
+#         interested_domains = user.get("interestedDomains", [])
+#         liked_articles = user.get("likedArticles", [])
+#         commented_articles = user.get("commentedArticles", [])
+#         shared_articles = user.get("sharedArticles", [])
         
-        if not interested_domains:
-            return jsonify({"error": "User has no interested domains selected"}), 404
+#         if not interested_domains:
+#             return jsonify({"error": "User has no interested domains selected"}), 404
             
-        # Convert domain names to lowercase for collection names
-        domain_collections = [domain.lower() for domain in interested_domains]
+#         # Convert domain names to lowercase for collection names
+#         domain_collections = [domain.lower() for domain in interested_domains]
         
-        # Create a set of all interacted article IDs to avoid recommending them
-        interacted_articles = set()
-        for item in liked_articles + commented_articles + shared_articles:
-            if 'articleId' in item and 'domain' in item:
-                interacted_articles.add((item['articleId'], item['domain']))
+#         # Create a set of all interacted article IDs to avoid recommending them
+#         interacted_articles = set()
+#         for item in liked_articles + commented_articles + shared_articles:
+#             if 'articleId' in item and 'domain' in item:
+#                 interacted_articles.add((item['articleId'], item['domain']))
         
-        recommended_articles = []
+#         recommended_articles = []
         
-        # Get 30 articles based on user scores and 10 random articles
-        articles_to_fetch_by_score = 30
-        articles_to_fetch_random = 10
+#         # Get 30 articles based on user scores and 10 random articles
+#         articles_to_fetch_by_score = 30
+#         articles_to_fetch_random = 10
         
-        # Check if we have enough liked articles to use the advanced algorithm
-        if len(liked_articles) >= 5:
-            # Calculate domain scores based on interactions
-            domain_scores = {domain.lower(): 0 for domain in ["nature", "education", "entertainment", "technology", 
-                            "science", "political", "lifestyle", "social", "space", "food"]}
+#         # Check if we have enough liked articles to use the advanced algorithm
+#         if len(liked_articles) >= 5:
+#             # Calculate domain scores based on interactions
+#             domain_scores = {domain.lower(): 0 for domain in ["nature", "education", "entertainment", "technology", 
+#                             "science", "political", "lifestyle", "social", "space", "food"]}
             
-            # Calculate scores by domain
-            for article in liked_articles:
-                if 'domain' in article:
-                    domain = article['domain'].lower()
-                    if domain in domain_scores:
-                        domain_scores[domain] += 0.5
+#             # Calculate scores by domain
+#             for article in liked_articles:
+#                 if 'domain' in article:
+#                     domain = article['domain'].lower()
+#                     if domain in domain_scores:
+#                         domain_scores[domain] += 0.5
             
-            for article in shared_articles:
-                if 'domain' in article:
-                    domain = article['domain'].lower()
-                    if domain in domain_scores:
-                        domain_scores[domain] += 0.1
+#             for article in shared_articles:
+#                 if 'domain' in article:
+#                     domain = article['domain'].lower()
+#                     if domain in domain_scores:
+#                         domain_scores[domain] += 0.1
             
-            for article in commented_articles:
-                if 'domain' in article:
-                    domain = article['domain'].lower()
-                    if domain in domain_scores:
-                        domain_scores[domain] += 0.2
+#             for article in commented_articles:
+#                 if 'domain' in article:
+#                     domain = article['domain'].lower()
+#                     if domain in domain_scores:
+#                         domain_scores[domain] += 0.2
             
-            # Calculate percentiles
-            total_score = sum(domain_scores.values())
-            domain_percentiles = {}
+#             # Calculate percentiles
+#             total_score = sum(domain_scores.values())
+#             domain_percentiles = {}
             
-            if total_score > 0:
-                for domain, score in domain_scores.items():
-                    domain_percentiles[domain] = (score / total_score) * 100
-            else:
-                # If no interactions, equal distribution
-                for domain in domain_scores:
-                    domain_percentiles[domain] = 10  # 10% each for 10 domains
+#             if total_score > 0:
+#                 for domain, score in domain_scores.items():
+#                     domain_percentiles[domain] = (score / total_score) * 100
+#             else:
+#                 # If no interactions, equal distribution
+#                 for domain in domain_scores:
+#                     domain_percentiles[domain] = 10  # 10% each for 10 domains
             
-            # Select 30 articles based on domain percentiles
-            high_percentile_domains = [d for d, p in domain_percentiles.items() if p > 50]
+#             # Select 30 articles based on domain percentiles
+#             high_percentile_domains = [d for d, p in domain_percentiles.items() if p > 50]
             
-            # Distribute articles according to percentiles
-            domain_article_counts = {}
-            remaining = articles_to_fetch_by_score
+#             # Distribute articles according to percentiles
+#             domain_article_counts = {}
+#             remaining = articles_to_fetch_by_score
             
-            for domain, percentile in domain_percentiles.items():
-                # Skip domains with no collections
-                if domain not in db.list_collection_names():
-                    continue
+#             for domain, percentile in domain_percentiles.items():
+#                 # Skip domains with no collections
+#                 if domain not in db.list_collection_names():
+#                     continue
                     
-                # Calculate articles to fetch for this domain
-                domain_count = int(round(articles_to_fetch_by_score * (percentile / 100)))
-                domain_article_counts[domain] = min(domain_count, remaining)
-                remaining -= domain_article_counts[domain]
+#                 # Calculate articles to fetch for this domain
+#                 domain_count = int(round(articles_to_fetch_by_score * (percentile / 100)))
+#                 domain_article_counts[domain] = min(domain_count, remaining)
+#                 remaining -= domain_article_counts[domain]
             
-            # If we didn't allocate all 30 articles, distribute the remainder
-            if remaining > 0:
-                valid_domains = [d for d in domain_scores.keys() if d in db.list_collection_names()]
-                if valid_domains:
-                    per_domain = remaining // len(valid_domains)
-                    for domain in valid_domains:
-                        domain_article_counts[domain] = domain_article_counts.get(domain, 0) + per_domain
-                        remaining -= per_domain
+#             # If we didn't allocate all 30 articles, distribute the remainder
+#             if remaining > 0:
+#                 valid_domains = [d for d in domain_scores.keys() if d in db.list_collection_names()]
+#                 if valid_domains:
+#                     per_domain = remaining // len(valid_domains)
+#                     for domain in valid_domains:
+#                         domain_article_counts[domain] = domain_article_counts.get(domain, 0) + per_domain
+#                         remaining -= per_domain
                     
-                    # Add any remaining to the first domain
-                    if remaining > 0 and valid_domains:
-                        domain_article_counts[valid_domains[0]] = domain_article_counts.get(valid_domains[0], 0) + remaining
+#                     # Add any remaining to the first domain
+#                     if remaining > 0 and valid_domains:
+#                         domain_article_counts[valid_domains[0]] = domain_article_counts.get(valid_domains[0], 0) + remaining
             
-            # Fetch the calculated number of articles from each domain
-            for domain, count in domain_article_counts.items():
-                if count <= 0:
-                    continue
+#             # Fetch the calculated number of articles from each domain
+#             for domain, count in domain_article_counts.items():
+#                 if count <= 0:
+#                     continue
                     
-                # Get article IDs to exclude
-                exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+#                 # Get article IDs to exclude
+#                 exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
                 
-                # Get random articles from this domain
-                domain_articles = list(db[domain].aggregate([
-                    {"$match": {"id": {"$nin": exclude_ids}}},
-                    {"$sample": {"size": count}},
-                    {"$project": {"_id": 0}}
-                ]))
+#                 # Get random articles from this domain
+#                 domain_articles = list(db[domain].aggregate([
+#                     {"$match": {"id": {"$nin": exclude_ids}}},
+#                     {"$sample": {"size": count}},
+#                     {"$project": {"_id": 0}}
+#                 ]))
                 
-                # Add domain name and score info to each article
-                for article in domain_articles:
-                    article["domain"] = domain
-                    article["domain_score"] = float(domain_percentiles[domain])
-                    article["recommendation_source"] = "score_based"
+#                 # Add domain name and score info to each article
+#                 for article in domain_articles:
+#                     article["domain"] = domain
+#                     article["domain_score"] = float(domain_percentiles[domain])
+#                     article["recommendation_source"] = "score_based"
                 
-                recommended_articles.extend(domain_articles)
+#                 recommended_articles.extend(domain_articles)
             
-            # Get 10 random articles from domains with percentile <= 50
-            remaining_random = articles_to_fetch_random
-            if recommended_articles:
-                low_percentile_domains = [d for d in domain_scores.keys() 
-                                         if d not in high_percentile_domains
-                                         and d in db.list_collection_names()]
+#             # Get 10 random articles from domains with percentile <= 50
+#             remaining_random = articles_to_fetch_random
+#             if recommended_articles:
+#                 low_percentile_domains = [d for d in domain_scores.keys() 
+#                                          if d not in high_percentile_domains
+#                                          and d in db.list_collection_names()]
                 
-                if low_percentile_domains:
-                    articles_per_domain = max(1, remaining_random // len(low_percentile_domains))
+#                 if low_percentile_domains:
+#                     articles_per_domain = max(1, remaining_random // len(low_percentile_domains))
                     
-                    for domain in low_percentile_domains:
-                        # Get article IDs to exclude
-                        exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
-                        already_recommended_ids = [a["id"] for a in recommended_articles if a.get("domain") == domain]
-                        exclude_ids.extend(already_recommended_ids)
+#                     for domain in low_percentile_domains:
+#                         # Get article IDs to exclude
+#                         exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+#                         already_recommended_ids = [a["id"] for a in recommended_articles if a.get("domain") == domain]
+#                         exclude_ids.extend(already_recommended_ids)
                         
-                        additional_articles = list(db[domain].aggregate([
-                            {"$match": {"id": {"$nin": exclude_ids}}},
-                            {"$sample": {"size": articles_per_domain}},
-                            {"$project": {"_id": 0}}
-                        ]))
+#                         additional_articles = list(db[domain].aggregate([
+#                             {"$match": {"id": {"$nin": exclude_ids}}},
+#                             {"$sample": {"size": articles_per_domain}},
+#                             {"$project": {"_id": 0}}
+#                         ]))
                         
-                        # Add domain name and source info to each article
-                        for article in additional_articles:
-                            article["domain"] = domain
-                            article["domain_score"] = float(domain_percentiles[domain])
-                            article["recommendation_source"] = "random"
+#                         # Add domain name and source info to each article
+#                         for article in additional_articles:
+#                             article["domain"] = domain
+#                             article["domain_score"] = float(domain_percentiles[domain])
+#                             article["recommendation_source"] = "random"
                             
-                        recommended_articles.extend(additional_articles)
-                        remaining_random -= len(additional_articles)
+#                         recommended_articles.extend(additional_articles)
+#                         remaining_random -= len(additional_articles)
                         
-                        if remaining_random <= 0:
-                            break
+#                         if remaining_random <= 0:
+#                             break
             
-        else:
-            # Simple recommendation for users with fewer than 5 liked articles
-            # Get random articles from each interested domain
-            articles_per_domain = max(1, 40 // len(domain_collections))  # 40 articles total
+#         else:
+#             # Simple recommendation for users with fewer than 5 liked articles
+#             # Get random articles from each interested domain
+#             articles_per_domain = max(1, 40 // len(domain_collections))  # 40 articles total
             
-            for domain in domain_collections:
-                # Make sure the domain collection exists
-                if domain in db.list_collection_names():
-                    # Get article IDs to exclude
-                    exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+#             for domain in domain_collections:
+#                 # Make sure the domain collection exists
+#                 if domain in db.list_collection_names():
+#                     # Get article IDs to exclude
+#                     exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
                     
-                    # Get random articles from this domain
-                    domain_articles = list(db[domain].aggregate([
-                        {"$match": {"id": {"$nin": exclude_ids}}},
-                        {"$sample": {"size": articles_per_domain}},
-                        {"$project": {"_id": 0}}
-                    ]))
+#                     # Get random articles from this domain
+#                     domain_articles = list(db[domain].aggregate([
+#                         {"$match": {"id": {"$nin": exclude_ids}}},
+#                         {"$sample": {"size": articles_per_domain}},
+#                         {"$project": {"_id": 0}}
+#                     ]))
                     
-                    # Add domain name and source info to each article
-                    for article in domain_articles:
-                        article["domain"] = domain
-                        article["recommendation_source"] = "new_user"
+#                     # Add domain name and source info to each article
+#                     for article in domain_articles:
+#                         article["domain"] = domain
+#                         article["recommendation_source"] = "new_user"
                     
-                    recommended_articles.extend(domain_articles)
+#                     recommended_articles.extend(domain_articles)
         
-        # If we still don't have 40 articles, grab more from random domains
-        if len(recommended_articles) < 40:
-            remaining_from_collections = 40 - len(recommended_articles)
-            all_domains = ["nature", "education", "entertainment", "technology", 
-                          "science", "political", "lifestyle", "social", 
-                          "space", "food"]
+#         # If we still don't have 40 articles, grab more from random domains
+#         if len(recommended_articles) < 40:
+#             remaining_from_collections = 40 - len(recommended_articles)
+#             all_domains = ["nature", "education", "entertainment", "technology", 
+#                           "science", "political", "lifestyle", "social", 
+#                           "space", "food"]
             
-            # Filter to domains with collections and that aren't already well-represented
-            valid_domains = [d.lower() for d in all_domains 
-                           if d.lower() in db.list_collection_names() 
-                           and d.lower() not in (high_percentile_domains if 'high_percentile_domains' in locals() else [])]
+#             # Filter to domains with collections and that aren't already well-represented
+#             valid_domains = [d.lower() for d in all_domains 
+#                            if d.lower() in db.list_collection_names() 
+#                            and d.lower() not in (high_percentile_domains if 'high_percentile_domains' in locals() else [])]
             
-            if valid_domains:
-                articles_per_domain = max(1, remaining_from_collections // len(valid_domains))
+#             if valid_domains:
+#                 articles_per_domain = max(1, remaining_from_collections // len(valid_domains))
                 
-                for domain in valid_domains:
-                    # Get article IDs to exclude
-                    exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
-                    already_recommended_ids = [a["id"] for a in recommended_articles if a.get("domain") == domain]
-                    exclude_ids.extend(already_recommended_ids)
+#                 for domain in valid_domains:
+#                     # Get article IDs to exclude
+#                     exclude_ids = [article_id for article_id, article_domain in interacted_articles if article_domain == domain]
+#                     already_recommended_ids = [a["id"] for a in recommended_articles if a.get("domain") == domain]
+#                     exclude_ids.extend(already_recommended_ids)
                     
-                    extra_articles = list(db[domain].aggregate([
-                        {"$match": {"id": {"$nin": exclude_ids}}},
-                        {"$sample": {"size": articles_per_domain}},
-                        {"$project": {"_id": 0}}
-                    ]))
+#                     extra_articles = list(db[domain].aggregate([
+#                         {"$match": {"id": {"$nin": exclude_ids}}},
+#                         {"$sample": {"size": articles_per_domain}},
+#                         {"$project": {"_id": 0}}
+#                     ]))
                     
-                    # Add domain name and source info to each article
-                    for article in extra_articles:
-                        article["domain"] = domain
-                        article["recommendation_source"] = "fallback"
+#                     # Add domain name and source info to each article
+#                     for article in extra_articles:
+#                         article["domain"] = domain
+#                         article["recommendation_source"] = "fallback"
                         
-                    recommended_articles.extend(extra_articles)
-                    remaining_from_collections -= len(extra_articles)
+#                     recommended_articles.extend(extra_articles)
+#                     remaining_from_collections -= len(extra_articles)
                     
-                    if remaining_from_collections <= 0:
-                        break
+#                     if remaining_from_collections <= 0:
+#                         break
         
-        # Remove duplicates by ID
-        seen_ids = set()
-        unique_articles = []
+#         # Remove duplicates by ID
+#         seen_ids = set()
+#         unique_articles = []
         
-        for article in recommended_articles:
-            if article["id"] not in seen_ids:
-                seen_ids.add(article["id"])
-                unique_articles.append(article)
+#         for article in recommended_articles:
+#             if article["id"] not in seen_ids:
+#                 seen_ids.add(article["id"])
+#                 unique_articles.append(article)
         
-        return jsonify({
-            "standardRecommendedArticles": unique_articles[:40],  # Limit to 40 articles
-            "count": len(unique_articles[:40]),
-            "method": "Interest and interaction based recommendations"
-        }), 200
+#         return jsonify({
+#             "standardRecommendedArticles": unique_articles[:40],  # Limit to 40 articles
+#             "count": len(unique_articles[:40]),
+#             "method": "Interest and interaction based recommendations"
+#         }), 200
             
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+#     except Exception as e:
+#         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 
 @app.route('/articles/trending', methods=['GET'])
@@ -1360,8 +1364,126 @@ def get_trending_articles():
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+@app.route('/wiki/trending', methods=['GET'])
+def get_trending_wikipedia_articles():
+    try:
+        # Set a limit for the number of trending articles to return
+        limit = int(request.args.get('limit', 20))
+        
+        # Get the top viewed pages from Wikipedia's API (with India focus)
+        # Using en.wikipedia for English Wikipedia with India focus
+        url = "https://wikimedia.org/api/rest_v1/metrics/pageviews/top/en.wikipedia/all-access/"
+        
+        # Calculate today and yesterday's dates
+        today = datetime.now()
+        yesterday = today - timedelta(days=1)
+        
+        # Format dates properly for the API (YYYY/MM/DD)
+        dates_to_try = [
+            yesterday.strftime("%Y/%m/%d"),  # Try yesterday first (more likely to have complete data)
+            today.strftime("%Y/%m/%d"),      # Try today as well
+            # Fallback to known working dates if recent dates fail
+            "2025/03/25",
+            "2025/03/24",
+            "2025/03/23"
+        ]
+        
+        response = None
+        date_str = None
+        
+        # Set proper headers to avoid 403 errors
+        headers = {
+            'User-Agent': 'Visionary Educational App/1.0 (contact@visionary-education.com)',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9'
+        }
+        
+        # Try each date until we get a successful response
+        for try_date in dates_to_try:
+            date_str = try_date
+            print(f"Trying to fetch trending data for date: {date_str}")
+            response = requests.get(f"{url}{date_str}", headers=headers)
+            print(f"Response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                print(f"Successfully retrieved trending data for: {date_str}")
+                break
+            elif response.status_code == 403:
+                print("Access forbidden - API rejected the request")
+                # Wait a moment before trying again to avoid triggering rate limits
+                time.sleep(1)
+        
+        # If all date attempts failed, return an error
+        if response is None or response.status_code != 200:
+            return jsonify({
+                "error": f"Could not fetch trending data. API returned status: {response.status_code if response else 'No response'}"
+            }), 500
+        
+        data = response.json()
+        top_articles = data['items'][0]['articles']
+        
+        # Process each article to create a simplified list with only topic, views and rank
+        trending_topics = []
+        india_related_topics = []
+        processed_count = 0
+        
+        # List of India-related keywords to prioritize
+        india_keywords = ["india", "indian", "mumbai", "delhi", "bangalore", "kolkata", "chennai",
+                         "hyderabad", "modi", "bollywood", "cricket", "bjp", "congress"]
+        
+        # First pass: find India-related articles
+        for article in top_articles:
+            # Skip main page, special pages, and other non-article pages
+            if (article['article'] in ['Main_Page', 'Special:Search'] or 
+                article['article'].startswith('Wikipedia:') or 
+                article['article'].startswith('Special:') or
+                article['article'].startswith('File:') or
+                article['article'].startswith('Portal:') or
+                article['article'].startswith('User:')):
+                continue
+            
+            # Create a simplified topic object
+            topic = {
+                'title': article['article'].replace('_', ' '),
+                'views': article['views'],
+                'rank': article['rank']
+            }
+            
+            # Check if this article is related to India
+            article_title_lower = topic['title'].lower()
+            is_india_related = any(keyword in article_title_lower for keyword in india_keywords)
+            
+            if is_india_related:
+                india_related_topics.append(topic)
+                print(f"Added India-related topic: {topic['title']}")
+            else:
+                trending_topics.append(topic)
+        
+        # Combine the lists, with India-related topics first
+        final_topics = india_related_topics + trending_topics
+        
+        # Limit to the requested number
+        final_topics = final_topics[:limit]
+        
+        # Add counts for each topic
+        for i, topic in enumerate(final_topics):
+            print(f"Final topic #{i+1}: {topic['title']}")
+        
+        return jsonify({
+            "trendingTopics": final_topics,
+            "india_related_count": len(india_related_topics),
+            "total_count": len(final_topics),
+            "date": date_str,
+            "method": "Wikipedia pageviews API (India focus)"
+        }), 200
+        
+    except Exception as e:
+        print(f"Exception in trending endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
-
+        
 def get_search_results(query, limit=5):
     """
     A specialized function to get search results from Wikipedia.
@@ -1451,6 +1573,30 @@ def search_articles():
         "count": len(results)
     }), 200
 
-if __name__ == '__main__':
+def run_with_ngrok():
+    from pyngrok import ngrok
+    
+    # Set your authtoken (replace with your actual token)
+    ngrok.set_auth_token("2uoszis5HShn76tmZA1vHczzeww_7N8qsqePXhjTZyJkLENhd")
+    
+    # Get port or use default 5000
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    
+    # Open a ngrok tunnel to the HTTP server
+    public_url = ngrok.connect(port)
+    print(f" * ngrok tunnel \"{public_url}\" -> \"http://localhost:{port}\"")
+    
+    # Update the app to use ngrok
+    app.config["BASE_URL"] = public_url
+    
+    # Start the Flask server
+    app.run(host='0.0.0.0', port=port)
+
+if __name__ == '__main__':
+    # Check if ngrok should be used
+    
+    if os.environ.get('USE_NGROK') == 'True':
+        run_with_ngrok()
+    else:
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port, debug=True)
